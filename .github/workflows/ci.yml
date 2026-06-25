@@ -42,14 +42,14 @@ jobs:
           echo "SERVER_PID=$!" >> $GITHUB_ENV
           # Wait for server to be ready
           for i in $(seq 1 10); do
-            curl -sf http://localhost:3000/api/login?username=test&password=test && break
+            curl -sf http://127.0.0.1:3000/health && break
             sleep 2
           done
 
       - name: Run Playwright tests
         run: npx playwright test
         env:
-          BASE_URL: http://localhost:3000
+          BASE_URL: http://127.0.0.1:3000
 
       - name: Upload Playwright report
         if: always()
