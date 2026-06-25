@@ -88,37 +88,33 @@ jobs:
           JIRA_EMAIL:     ${{ secrets.JIRA_EMAIL }}
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
           JIRA_ISSUE_KEY: ${{ secrets.JIRA_ISSUE_KEY }}
+          RESULT:         ${{ steps.outcome.outputs.status }}
+          RUN_URL:        https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WORKFLOW:       ${{ github.workflow }}
+          BRANCH:         ${{ github.ref_name }}
         run: |
-          AUTH=$(echo -n "${JIRA_EMAIL}:${JIRA_API_TOKEN}" | base64)
-          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-
-          BODY=$(cat <<EOF
-          {
-            "body": {
-              "type": "doc",
-              "version": 1,
-              "content": [
-                {
-                  "type": "paragraph",
-                  "content": [
-                    {
-                      "type": "text",
-                      "text": "${{ steps.outcome.outputs.icon }} GitHub Actions CI/CD Report\n\nWorkflow: ${{ github.workflow }}\nBranch: ${{ github.ref_name }}\nRun: ${RUN_URL}\nResult: ${{ steps.outcome.outputs.status }}\n\nAutomatically posted by the Agentic AI Pipeline."
-                    }
-                  ]
-                }
-              ]
-            }
-          }
-          EOF
+          python3 << 'PYTHON'
+          import urllib.request, json, os, base64
+          host     = os.environ['JIRA_HOST']
+          email    = os.environ['JIRA_EMAIL']
+          token    = os.environ['JIRA_API_TOKEN']
+          key      = os.environ['JIRA_ISSUE_KEY']
+          result   = os.environ['RESULT']
+          run_url  = os.environ['RUN_URL']
+          workflow = os.environ['WORKFLOW']
+          branch   = os.environ['BRANCH']
+          auth = base64.b64encode(f'{email}:{token}'.encode()).decode()
+          msg = f'GitHub Actions CI/CD Report\n\nWorkflow: {workflow}\nBranch: {branch}\nRun: {run_url}\nResult: {result}\n\nAutomatically posted by the Agentic AI Pipeline.'
+          body = {'body': {'type': 'doc', 'version': 1, 'content': [{'type': 'paragraph', 'content': [{'type': 'text', 'text': msg}]}]}}
+          req = urllib.request.Request(
+            f'https://{host}/rest/api/3/issue/{key}/comment',
+            data=json.dumps(body).encode(),
+            headers={'Authorization': f'Basic {auth}', 'Content-Type': 'application/json', 'Accept': 'application/json'},
+            method='POST'
           )
-
-          curl -s -X POST \
-            "https://${JIRA_HOST}/rest/api/3/issue/${JIRA_ISSUE_KEY}/comment" \
-            -H "Authorization: Basic ${AUTH}" \
-            -H "Content-Type: application/json" \
-            -H "Accept: application/json" \
-            -d "$BODY"
+          with urllib.request.urlopen(req) as r:
+            print('Jira comment posted, status:', r.status)
+          PYTHON
 
       - name: Transition Jira issue to Done (on success)
         if: needs.playwright.result == 'success'
