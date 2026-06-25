@@ -36,7 +36,7 @@ test.describe("AQA-1 – US Person login", () => {
     }
   });
 
-  test("US_PERSON user response should not contain a Non-US-Person error message", async ({
+  test("US_PERSON user response should not contain a NON_US_PERSON restriction message", async ({
     request,
   }) => {
     const response = await request.get(
@@ -47,6 +47,7 @@ test.describe("AQA-1 – US Person login", () => {
 
     const body = await response.json();
 
+    expect(body.success).toBe(true);
     expect(body.message).not.toBe(
       "Only US Persons are allowed to watch this demo."
     );
@@ -85,7 +86,7 @@ test.describe("AQA-1 – Non-US Person login", () => {
     );
   });
 
-  test("NON_US_PERSON user export_status should reflect NON_US_PERSON when present in response", async ({
+  test("NON_US_PERSON user response should gracefully handle the restriction without a server error", async ({
     request,
   }) => {
     const response = await request.get(
@@ -94,12 +95,12 @@ test.describe("AQA-1 – Non-US Person login", () => {
       )}&password=${encodeURIComponent(NON_US_USER.password)}`
     );
 
+    expect(response.status()).toBeLessThan(500);
+
     const body = await response.json();
 
     expect(body.success).toBe(false);
-
-    if (body.exportStatus !== undefined) {
-      expect(body.exportStatus).toBe(NON_US_USER.exportStatus);
-    }
+    expect(typeof body.message).toBe("string");
+    expect(body.message.length).toBeGreaterThan(0);
   });
 });
