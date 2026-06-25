@@ -54,7 +54,7 @@ app.get('/api/login', (req: Request, res: Response) => {
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
-app.listen(PORT, () => {
-  console.log(`✅  Mock server running on http://localhost:${PORT}`);
+app.listen(Number(PORT), '0.0.0.0', () => {
+  console.log(`✅  Mock server running on http://0.0.0.0:${PORT}`);
   console.log(`    Try: curl "http://localhost:${PORT}/api/login?username=captain.america&password=Avengers2025!"`);
 });
