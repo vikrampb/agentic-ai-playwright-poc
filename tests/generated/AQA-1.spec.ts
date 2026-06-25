@@ -1,77 +1,156 @@
 import { test, expect } from "@playwright/test";
 
-const US_USER = {
-  name: "Captain America",
-  username: "captain.america",
-  password: "Avengers2025!",
-  exportStatus: "US_PERSON",
-};
+test.describe("AQA-1: Verify only US Users are able to log in to the application", () => {
+  test.describe("US_PERSON user - Captain America should be able to log in successfully", () => {
+    test("should return success=true when a US_PERSON user provides valid credentials", async ({
+      request,
+    }) => {
+      const response = await request.get("/api/login", {
+        params: {
+          username: "captain.america",
+          password: "Avengers2025!",
+        },
+      });
 
-const NON_US_USER = {
-  name: "Green Goblin",
-  username: "green.goblin",
-  password: "OsCorp2025!",
-  exportStatus: "NON_US_PERSON",
-};
+      expect(response.status()).toBe(200);
 
-const LOGIN_ENDPOINT = "/api/login";
+      const body = await response.json();
 
-test.describe("AQA-1 – US Person login", () => {
-  test("US_PERSON user can log in successfully", async ({ request }) => {
-    const response = await request.get(LOGIN_ENDPOINT, {
-      params: {
-        username: US_USER.username,
-        password: US_USER.password,
-      },
+      expect(body.success).toBe(true);
+      expect(body).toHaveProperty("message");
+      expect(body.exportStatus).toBe("US_PERSON");
     });
 
-    expect(
-      response.status(),
-      "Expected HTTP 200 for a valid US_PERSON login"
-    ).toBe(200);
+    test("should not return the NON_US_PERSON error message for a US_PERSON user", async ({
+      request,
+    }) => {
+      const response = await request.get("/api/login", {
+        params: {
+          username: "captain.america",
+          password: "Avengers2025!",
+        },
+      });
 
-    const body = await response.json();
+      expect(response.status()).toBe(200);
 
-    expect(
-      body.success,
-      `Expected success=true for US_PERSON user "${US_USER.name}"`
-    ).toBe(true);
+      const body = await response.json();
 
-    if (body.exportStatus !== undefined) {
-      expect(
-        body.exportStatus,
-        "exportStatus in response should be US_PERSON"
-      ).toBe(US_USER.exportStatus);
-    }
+      expect(body.message).not.toBe(
+        "Only US Persons are allowed to watch this demo."
+      );
+    });
   });
-});
 
-test.describe("AQA-1 – Non-US Person login", () => {
-  test("NON_US_PERSON user is denied access with a graceful error message", async ({
-    request,
-  }) => {
-    const response = await request.get(LOGIN_ENDPOINT, {
-      params: {
-        username: NON_US_USER.username,
-        password: NON_US_USER.password,
-      },
+  test.describe("NON_US_PERSON user - Green Goblin should NOT be able to log in", () => {
+    test("should return success=false when a NON_US_PERSON user provides valid credentials", async ({
+      request,
+    }) => {
+      const response = await request.get("/api/login", {
+        params: {
+          username: "green.goblin",
+          password: "OsCorp2025!",
+        },
+      });
+
+      expect(response.status()).toBe(200);
+
+      const body = await response.json();
+
+      expect(body.success).toBe(false);
     });
 
-    expect(
-      response.status(),
-      "Expected a non-2xx or 200 response indicating failure for NON_US_PERSON"
-    ).toBeDefined();
+    test("should return the correct error message for a NON_US_PERSON user", async ({
+      request,
+    }) => {
+      const response = await request.get("/api/login", {
+        params: {
+          username: "green.goblin",
+          password: "OsCorp2025!",
+        },
+      });
 
-    const body = await response.json();
+      expect(response.status()).toBe(200);
 
-    expect(
-      body.success,
-      `Expected success=false for NON_US_PERSON user "${NON_US_USER.name}"`
-    ).toBe(false);
+      const body = await response.json();
 
-    expect(
-      body.message,
-      "Expected the error message to inform the user that only US Persons are allowed"
-    ).toBe("Only US Persons are allowed to watch this demo.");
+      expect(body.message).toBe(
+        "Only US Persons are allowed to watch this demo."
+      );
+    });
+
+    test("should return exportStatus of NON_US_PERSON in the response for a non-US user", async ({
+      request,
+    }) => {
+      const response = await request.get("/api/login", {
+        params: {
+          username: "green.goblin",
+          password: "OsCorp2025!",
+        },
+      });
+
+      expect(response.status()).toBe(200);
+
+      const body = await response.json();
+
+      expect(body.exportStatus).toBe("NON_US_PERSON");
+    });
+  });
+
+  test.describe("Export status distinction between US and NON_US users", () => {
+    test("should confirm US_PERSON and NON_US_PERSON users receive different success statuses", async ({
+      request,
+    }) => {
+      const usPersonResponse = await request.get("/api/login", {
+        params: {
+          username: "captain.america",
+          password: "Avengers2025!",
+        },
+      });
+
+      const nonUsPersonResponse = await request.get("/api/login", {
+        params: {
+          username: "green.goblin",
+          password: "OsCorp2025!",
+        },
+      });
+
+      expect(usPersonResponse.status()).toBe(200);
+      expect(nonUsPersonResponse.status()).toBe(200);
+
+      const usPersonBody = await usPersonResponse.json();
+      const nonUsPersonBody = await nonUsPersonResponse.json();
+
+      expect(usPersonBody.success).toBe(true);
+      expect(nonUsPersonBody.success).toBe(false);
+    });
+
+    test("should confirm US_PERSON and NON_US_PERSON users receive different messages", async ({
+      request,
+    }) => {
+      const usPersonResponse = await request.get("/api/login", {
+        params: {
+          username: "captain.america",
+          password: "Avengers2025!",
+        },
+      });
+
+      const nonUsPersonResponse = await request.get("/api/login", {
+        params: {
+          username: "green.goblin",
+          password: "OsCorp2025!",
+        },
+      });
+
+      expect(usPersonResponse.status()).toBe(200);
+      expect(nonUsPersonResponse.status()).toBe(200);
+
+      const usPersonBody = await usPersonResponse.json();
+      const nonUsPersonBody = await nonUsPersonResponse.json();
+
+      expect(usPersonBody.message).not.toBe(nonUsPersonBody.message);
+      expect(nonUsPersonBody.message).toBe(
+        "Only US Persons are allowed to watch this demo."
+      );
+    });
   });
 });
