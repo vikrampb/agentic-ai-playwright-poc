@@ -28,17 +28,33 @@ test.describe("AQA-1 – US Person login", () => {
 
     const body = await response.json();
 
-    expect(body).toHaveProperty("success", true);
+    expect(body.success).toBe(true);
     expect(body.message).toBeTruthy();
 
     if (body.exportStatus !== undefined) {
       expect(body.exportStatus).toBe(US_USER.exportStatus);
     }
   });
+
+  test("US_PERSON user response should not contain a rejection message", async ({
+    request,
+  }) => {
+    const response = await request.get(
+      `/api/login?username=${encodeURIComponent(
+        US_USER.username
+      )}&password=${encodeURIComponent(US_USER.password)}`
+    );
+
+    const body = await response.json();
+
+    expect(body.message).not.toContain(
+      "Only US Persons are allowed to watch this demo."
+    );
+  });
 });
 
-test.describe("AQA-1 – NON_US Person login", () => {
-  test("NON_US_PERSON user should NOT be able to log in and should receive an error message", async ({
+test.describe("AQA-1 – NON-US Person login", () => {
+  test("NON_US_PERSON user should NOT be able to log in", async ({
     request,
   }) => {
     const response = await request.get(
@@ -49,11 +65,57 @@ test.describe("AQA-1 – NON_US Person login", () => {
 
     const body = await response.json();
 
-    expect(body).toHaveProperty("success", false);
-    expect(body.message).toBe("Only US Persons are allowed to watch this demo.");
+    expect(body.success).toBe(false);
+  });
+
+  test("NON_US_PERSON user should receive the correct error message", async ({
+    request,
+  }) => {
+    const response = await request.get(
+      `/api/login?username=${encodeURIComponent(
+        NON_US_USER.username
+      )}&password=${encodeURIComponent(NON_US_USER.password)}`
+    );
+
+    const body = await response.json();
+
+    expect(body.success).toBe(false);
+    expect(body.message).toBe(
+      "Only US Persons are allowed to watch this demo."
+    );
+  });
+
+  test("NON_US_PERSON user response should include a graceful error message", async ({
+    request,
+  }) => {
+    const response = await request.get(
+      `/api/login?username=${encodeURIComponent(
+        NON_US_USER.username
+      )}&password=${encodeURIComponent(NON_US_USER.password)}`
+    );
+
+    const body = await response.json();
+
+    expect(typeof body.message).toBe("string");
+    expect(body.message.length).toBeGreaterThan(0);
+    expect(body.message).toContain("Only US Persons are allowed");
+  });
+
+  test("NON_US_PERSON export status should reflect correct classification", async ({
+    request,
+  }) => {
+    const response = await request.get(
+      `/api/login?username=${encodeURIComponent(
+        NON_US_USER.username
+      )}&password=${encodeURIComponent(NON_US_USER.password)}`
+    );
+
+    const body = await response.json();
 
     if (body.exportStatus !== undefined) {
       expect(body.exportStatus).toBe(NON_US_USER.exportStatus);
     }
+
+    expect(body.success).toBe(false);
   });
 });
