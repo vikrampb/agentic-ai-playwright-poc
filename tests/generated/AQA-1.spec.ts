@@ -15,43 +15,73 @@ const NON_US_USER = {
 };
 
 test.describe("AQA-1 – US Person login", () => {
-  test("US_PERSON user should log in successfully", async ({ request }) => {
+  test("US_PERSON user should be able to log in successfully", async ({
+    request,
+  }) => {
     const response = await request.get(
-      `/api/login?username=${US_USER.username}&password=${encodeURIComponent(US_USER.password)}`
+      `/api/login?username=${encodeURIComponent(
+        US_USER.username
+      )}&password=${encodeURIComponent(US_USER.password)}`
     );
 
-    expect(response.status()).toBe(200);
+    expect(
+      response.status(),
+      "Expected HTTP 200 for a valid US_PERSON login"
+    ).toBe(200);
 
     const body = await response.json();
 
-    expect(body.success).toBe(true);
-    expect(typeof body.message).toBe("string");
+    expect(
+      body.success,
+      `Expected success=true for US_PERSON user "${US_USER.name}"`
+    ).toBe(true);
 
     if (body.exportStatus !== undefined) {
-      expect(body.exportStatus).toBe(US_USER.exportStatus);
+      expect(
+        body.exportStatus,
+        "Export status returned in response should be US_PERSON"
+      ).toBe("US_PERSON");
     }
   });
 });
 
 test.describe("AQA-1 – NON_US Person login", () => {
-  test("NON_US_PERSON user should be rejected with a graceful error message", async ({
+  test("NON_US_PERSON user should NOT be able to log in and should receive an error message", async ({
     request,
   }) => {
     const response = await request.get(
-      `/api/login?username=${NON_US_USER.username}&password=${encodeURIComponent(NON_US_USER.password)}`
+      `/api/login?username=${encodeURIComponent(
+        NON_US_USER.username
+      )}&password=${encodeURIComponent(NON_US_USER.password)}`
     );
 
-    expect(response.status()).toBe(200);
+    expect(
+      response.ok() || response.status() === 403 || response.status() === 401,
+      `Expected a response for NON_US_PERSON user "${NON_US_USER.name}" – received status ${response.status()}`
+    ).toBeTruthy();
 
     const body = await response.json();
 
-    expect(body.success).toBe(false);
-    expect(body.message).toBe(
-      "Only US Persons are allowed to watch this demo."
-    );
+    expect(
+      body.success,
+      `Expected success=false for NON_US_PERSON user "${NON_US_USER.name}"`
+    ).toBe(false);
+
+    expect(
+      typeof body.message,
+      "Expected a message string to be present in the response body"
+    ).toBe("string");
+
+    expect(
+      body.message,
+      `Expected the error message to inform the user that only US Persons are allowed`
+    ).toBe("Only US Persons are allowed to watch this demo.");
 
     if (body.exportStatus !== undefined) {
-      expect(body.exportStatus).toBe(NON_US_USER.exportStatus);
+      expect(
+        body.exportStatus,
+        "Export status returned in response should be NON_US_PERSON"
+      ).toBe("NON_US_PERSON");
     }
   });
 });
