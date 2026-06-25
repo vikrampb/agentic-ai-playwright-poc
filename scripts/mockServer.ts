@@ -52,7 +52,7 @@ app.get('/api/login', (req: Request, res: Response) => {
   });
 });
 
-app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+app.get('/health', (_req: Request, res: Response) => res.json({ status: 'ok' }));
 
 app.listen(Number(PORT), '0.0.0.0', () => {
   console.log(`✅  Mock server running on http://0.0.0.0:${PORT}`);
