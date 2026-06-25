@@ -42,7 +42,7 @@ test.describe("AQA-1: Verify only US Users are able to log in to the application
   });
 
   test.describe("NON_US_PERSON user - Green Goblin should NOT be able to log in", () => {
-    test("should return success=false when a NON_US_PERSON user provides valid credentials", async ({
+    test("should return success=false when a NON_US_PERSON user attempts to log in", async ({
       request,
     }) => {
       const response = await request.get("/api/login", {
@@ -78,7 +78,7 @@ test.describe("AQA-1: Verify only US Users are able to log in to the application
       );
     });
 
-    test("should return exportStatus of NON_US_PERSON in the response for a non-US user", async ({
+    test("should return exportStatus of NON_US_PERSON in the response for a blocked user", async ({
       request,
     }) => {
       const response = await request.get("/api/login", {
@@ -97,7 +97,7 @@ test.describe("AQA-1: Verify only US Users are able to log in to the application
   });
 
   test.describe("Export status distinction between US and NON_US users", () => {
-    test("should confirm US_PERSON and NON_US_PERSON users receive different success statuses", async ({
+    test("should confirm US_PERSON and NON_US_PERSON users receive different success values", async ({
       request,
     }) => {
       const usPersonResponse = await request.get("/api/login", {
