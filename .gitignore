@@ -1,0 +1,11 @@
+.env
+dist/
+*.js.map
+data/
+playwright-report/
+test-results/
+node_modules/
+.DS_Store
+.vscode/
+.idea/
+mnt/

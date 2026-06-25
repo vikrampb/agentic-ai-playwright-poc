@@ -1,0 +1,120 @@
+/**
+ * src/github/client.ts
+ * Wraps Octokit to: create branches, commit files, trigger workflows,
+ * and poll run results.
+ */
+import { Octokit } from 'octokit';
+import * as dotenv from 'dotenv';
+dotenv.config();
+
+const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH } = process.env;
+
+const octokit = new Octokit({ auth: GITHUB_TOKEN });
+
+const owner  = GITHUB_OWNER!;
+const repo   = GITHUB_REPO!;
+const branch = GITHUB_BRANCH ?? 'agent/auto-tests';
+
+async function getDefaultBranchSha(): Promise<string> {
+  const { data } = await octokit.rest.repos.get({ owner, repo });
+  const defaultBranch = data.default_branch;
+  const ref = await octokit.rest.git.getRef({ owner, repo, ref: `heads/${defaultBranch}` });
+  return ref.data.object.sha;
+}
+
+export async function ensureBranch(): Promise<void> {
+  try {
+    await octokit.rest.git.getRef({ owner, repo, ref: `heads/${branch}` });
+    console.log(`🌿  Branch "${branch}" already exists`);
+  } catch {
+    const sha = await getDefaultBranchSha();
+    await octokit.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha });
+    console.log(`🌿  Branch "${branch}" created`);
+  }
+}
+
+export async function commitFile(filePath: string, content: string, message: string): Promise<void> {
+  let sha: string | undefined;
+  try {
+    const existing = await octokit.rest.repos.getContent({ owner, repo, path: filePath, ref: branch });
+    if (!Array.isArray(existing.data) && 'sha' in existing.data) sha = existing.data.sha;
+  } catch { /* file doesn't exist yet */ }
+
+  const encoded = Buffer.from(content).toString('base64');
+  await octokit.rest.repos.createOrUpdateFileContents({
+    owner, repo, path: filePath,
+    message,
+    content: encoded,
+    branch,
+    ...(sha ? { sha } : {}),
+  });
+  console.log(`📝  Committed ${filePath}`);
+}
+
+export async function triggerWorkflow(workflowFile = 'ci.yml'): Promise<void> {
+  await octokit.rest.actions.createWorkflowDispatch({
+    owner, repo,
+    workflow_id: workflowFile,
+    ref: branch,
+  });
+  console.log(`🚀  Triggered workflow "${workflowFile}" on branch "${branch}"`);
+}
+
+export interface WorkflowRunResult {
+  runId: number;
+  status: string;
+  conclusion: string | null;
+  url: string;
+}
+
+export async function waitForLatestRun(
+  workflowFile = 'ci.yml',
+  timeoutMs = 600_000,
+): Promise<WorkflowRunResult> {
+  const pollInterval = 15_000;
+  const deadline = Date.now() + timeoutMs;
+
+  await new Promise((r) => setTimeout(r, 8_000));
+
+  while (Date.now() < deadline) {
+    const { data } = await octokit.rest.actions.listWorkflowRuns({
+      owner, repo,
+      workflow_id: workflowFile,
+      branch,
+      per_page: 1,
+    });
+
+    const run = data.workflow_runs[0];
+    if (!run) {
+      await new Promise((r) => setTimeout(r, pollInterval));
+      continue;
+    }
+
+    console.log(`⏳  Run #${run.id} – status: ${run.status} | conclusion: ${run.conclusion ?? 'pending'}`);
+
+    if (run.status === 'completed') {
+      return { runId: run.id, status: run.status, conclusion: run.conclusion, url: run.html_url };
+    }
+
+    await new Promise((r) => setTimeout(r, pollInterval));
+  }
+
+  throw new Error('Timed out waiting for workflow run to complete');
+}
+
+export async function createRepoIfNeeded(repoName: string, description: string): Promise<string> {
+  try {
+    const { data } = await octokit.rest.repos.get({ owner, repo: repoName });
+    console.log(`📦  Repo "${repoName}" already exists`);
+    return data.html_url;
+  } catch {
+    const { data } = await octokit.rest.repos.createForAuthenticatedUser({
+      name: repoName,
+      description,
+      private: false,
+      auto_init: true,
+    });
+    console.log(`📦  Repo "${repoName}" created: ${data.html_url}`);
+    return data.html_url;
+  }
+}
