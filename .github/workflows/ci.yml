@@ -1,0 +1,159 @@
+name: Playwright Tests + Jira Update
+
+on:
+  push:
+    branches:
+      - "agent/**"
+  workflow_dispatch:          # also allows the agent to trigger manually
+
+permissions:
+  contents: read
+  actions:  read
+
+jobs:
+  # ── 1. Install deps & run Playwright ───────────────────────────────────────
+  playwright:
+    name: Run Playwright Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Seed SQLite database
+        run: npm run db:init
+
+      - name: Start mock login server (background)
+        run: |
+          npx ts-node scripts/mockServer.ts &
+          echo "SERVER_PID=$!" >> $GITHUB_ENV
+          # Wait for server to be ready
+          for i in $(seq 1 10); do
+            curl -sf http://localhost:3000/api/login?username=test&password=test && break
+            sleep 2
+          done
+
+      - name: Run Playwright tests
+        run: npx playwright test
+        env:
+          BASE_URL: http://localhost:3000
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Kill mock server
+        if: always()
+        run: kill $SERVER_PID || true
+
+  # ── 2. Post results back to Jira ───────────────────────────────────────────
+  jira-update:
+    name: Post Results to Jira
+    runs-on: ubuntu-latest
+    needs: playwright
+    if: always()             # run even when tests fail
+
+    steps:
+      - name: Determine test outcome
+        id: outcome
+        run: |
+          if [ "${{ needs.playwright.result }}" == "success" ]; then
+            echo "status=PASSED ✅" >> $GITHUB_OUTPUT
+            echo "icon=✅"          >> $GITHUB_OUTPUT
+          else
+            echo "status=FAILED ❌" >> $GITHUB_OUTPUT
+            echo "icon=❌"          >> $GITHUB_OUTPUT
+          fi
+
+      - name: Post comment to Jira
+        env:
+          JIRA_HOST:      ${{ secrets.JIRA_HOST }}
+          JIRA_EMAIL:     ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_ISSUE_KEY: ${{ secrets.JIRA_ISSUE_KEY }}
+        run: |
+          AUTH=$(echo -n "${JIRA_EMAIL}:${JIRA_API_TOKEN}" | base64)
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          BODY=$(cat <<EOF
+          {
+            "body": {
+              "type": "doc",
+              "version": 1,
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "${{ steps.outcome.outputs.icon }} GitHub Actions CI/CD Report\n\nWorkflow: ${{ github.workflow }}\nBranch: ${{ github.ref_name }}\nRun: ${RUN_URL}\nResult: ${{ steps.outcome.outputs.status }}\n\nAutomatically posted by the Agentic AI Pipeline."
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+          EOF
+          )
+
+          curl -s -X POST \
+            "https://${JIRA_HOST}/rest/api/3/issue/${JIRA_ISSUE_KEY}/comment" \
+            -H "Authorization: Basic ${AUTH}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            -d "$BODY"
+
+      - name: Transition Jira issue to Done (on success)
+        if: needs.playwright.result == 'success'
+        env:
+          JIRA_HOST:      ${{ secrets.JIRA_HOST }}
+          JIRA_EMAIL:     ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_ISSUE_KEY: ${{ secrets.JIRA_ISSUE_KEY }}
+        run: |
+          AUTH=$(echo -n "${JIRA_EMAIL}:${JIRA_API_TOKEN}" | base64)
+
+          # Fetch available transitions
+          TRANSITIONS=$(curl -s \
+            "https://${JIRA_HOST}/rest/api/3/issue/${JIRA_ISSUE_KEY}/transitions" \
+            -H "Authorization: Basic ${AUTH}" \
+            -H "Accept: application/json")
+
+          # Find the "Done" transition ID
+          TRANSITION_ID=$(echo "$TRANSITIONS" | \
+            python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          for t in data.get('transitions', []):
+              if t['name'].lower() == 'done':
+                  print(t['id'])
+                  break
+          ")
+
+          if [ -n "$TRANSITION_ID" ]; then
+            curl -s -X POST \
+              "https://${JIRA_HOST}/rest/api/3/issue/${JIRA_ISSUE_KEY}/transitions" \
+              -H "Authorization: Basic ${AUTH}" \
+              -H "Content-Type: application/json" \
+              -d "{\"transition\":{\"id\":\"${TRANSITION_ID}\"}}"
+            echo "Transitioned ${JIRA_ISSUE_KEY} → Done"
+          else
+            echo "No 'Done' transition found — skipping"
+          fi
