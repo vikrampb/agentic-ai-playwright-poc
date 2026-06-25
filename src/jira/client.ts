@@ -1,6 +1,6 @@
 /**
  * src/jira/client.ts
- * Fetches and posts to Jira using the Atlassian REST API v3.
+ * Fetches Jira issues and posts rich ADF comments back.
  */
 import * as dotenv from 'dotenv';
 dotenv.config();
@@ -58,7 +58,7 @@ export async function fetchIssue(issueKey: string): Promise<JiraIssue> {
   };
 
   const description = adfToText(data.fields.description);
-  const acField = data.fields.customfield_10016;
+  const acField      = data.fields.customfield_10016;
   const acceptanceCriteria = acField ? adfToText(acField) : '';
 
   return {
@@ -70,42 +70,49 @@ export async function fetchIssue(issueKey: string): Promise<JiraIssue> {
   };
 }
 
-export async function postComment(issueKey: string, body: string): Promise<void> {
-  const payload = {
-    body: {
-      type: 'doc',
-      version: 1,
-      content: [
-        {
-          type: 'paragraph',
-          content: [{ type: 'text', text: body }],
-        },
-      ],
-    },
+/**
+ * Post a comment to a Jira issue.
+ * - If adfBody is supplied it is posted directly (allows rich tables).
+ * - Otherwise plainText is wrapped in a minimal ADF paragraph.
+ */
+export async function postComment(
+  issueKey: string,
+  plainText: string,
+  adfBody?: object,
+): Promise<void> {
+  const body = adfBody ?? {
+    type: 'doc',
+    version: 1,
+    content: [
+      {
+        type: 'paragraph',
+        content: [{ type: 'text', text: plainText }],
+      },
+    ],
   };
 
   const res = await jiraFetch(`/issue/${issueKey}/comment`, {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ body }),
   });
 
   if (!res.ok) throw new Error(`Jira comment error ${res.status}: ${await res.text()}`);
-  console.log(`💬  Comment posted to ${issueKey}`);
+  console.log(`   💬  Comment posted to ${issueKey}`);
 }
 
 export async function transitionIssue(issueKey: string, targetStatus: string): Promise<void> {
-  const res = await jiraFetch(`/issue/${issueKey}/transitions`);
+  const res  = await jiraFetch(`/issue/${issueKey}/transitions`);
   const data = (await res.json()) as { transitions: Array<{ id: string; name: string }> };
   const transition = data.transitions.find(
     (t) => t.name.toLowerCase() === targetStatus.toLowerCase(),
   );
   if (!transition) {
-    console.warn(`⚠️  No transition found for status "${targetStatus}" on ${issueKey}`);
+    console.warn(`   ⚠️   No transition "${targetStatus}" on ${issueKey}`);
     return;
   }
   await jiraFetch(`/issue/${issueKey}/transitions`, {
     method: 'POST',
     body: JSON.stringify({ transition: { id: transition.id } }),
   });
-  console.log(`🔄  ${issueKey} transitioned → ${targetStatus}`);
+  console.log(`   🔄  ${issueKey} → ${targetStatus}`);
 }
