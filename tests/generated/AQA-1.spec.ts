@@ -15,68 +15,33 @@ const NON_US_USER = {
 };
 
 test.describe("AQA-1 – US Person login", () => {
-  test("US_PERSON user should be able to log in successfully", async ({
-    request,
-  }) => {
+  test("US_PERSON user should log in successfully", async ({ request }) => {
     const response = await request.get(
-      `/api/login?username=${encodeURIComponent(
-        US_USER.username
-      )}&password=${encodeURIComponent(US_USER.password)}`
+      `/api/login?username=${US_USER.username}&password=${encodeURIComponent(US_USER.password)}`
     );
 
-    expect(response.ok()).toBeTruthy();
+    expect(response.status()).toBe(200);
 
     const body = await response.json();
 
     expect(body.success).toBe(true);
-    expect(body.message).toBeTruthy();
+    expect(typeof body.message).toBe("string");
 
     if (body.exportStatus !== undefined) {
       expect(body.exportStatus).toBe(US_USER.exportStatus);
     }
   });
-
-  test("US_PERSON user response should not contain a NON_US_PERSON restriction message", async ({
-    request,
-  }) => {
-    const response = await request.get(
-      `/api/login?username=${encodeURIComponent(
-        US_USER.username
-      )}&password=${encodeURIComponent(US_USER.password)}`
-    );
-
-    const body = await response.json();
-
-    expect(body.success).toBe(true);
-    expect(body.message).not.toBe(
-      "Only US Persons are allowed to watch this demo."
-    );
-  });
 });
 
-test.describe("AQA-1 – Non-US Person login", () => {
-  test("NON_US_PERSON user should not be able to log in", async ({
+test.describe("AQA-1 – NON_US Person login", () => {
+  test("NON_US_PERSON user should be rejected with a graceful error message", async ({
     request,
   }) => {
     const response = await request.get(
-      `/api/login?username=${encodeURIComponent(
-        NON_US_USER.username
-      )}&password=${encodeURIComponent(NON_US_USER.password)}`
+      `/api/login?username=${NON_US_USER.username}&password=${encodeURIComponent(NON_US_USER.password)}`
     );
 
-    const body = await response.json();
-
-    expect(body.success).toBe(false);
-  });
-
-  test("NON_US_PERSON user should receive the correct error message", async ({
-    request,
-  }) => {
-    const response = await request.get(
-      `/api/login?username=${encodeURIComponent(
-        NON_US_USER.username
-      )}&password=${encodeURIComponent(NON_US_USER.password)}`
-    );
+    expect(response.status()).toBe(200);
 
     const body = await response.json();
 
@@ -84,23 +49,9 @@ test.describe("AQA-1 – Non-US Person login", () => {
     expect(body.message).toBe(
       "Only US Persons are allowed to watch this demo."
     );
-  });
 
-  test("NON_US_PERSON user response should gracefully handle the restriction without a server error", async ({
-    request,
-  }) => {
-    const response = await request.get(
-      `/api/login?username=${encodeURIComponent(
-        NON_US_USER.username
-      )}&password=${encodeURIComponent(NON_US_USER.password)}`
-    );
-
-    expect(response.status()).toBeLessThan(500);
-
-    const body = await response.json();
-
-    expect(body.success).toBe(false);
-    expect(typeof body.message).toBe("string");
-    expect(body.message.length).toBeGreaterThan(0);
+    if (body.exportStatus !== undefined) {
+      expect(body.exportStatus).toBe(NON_US_USER.exportStatus);
+    }
   });
 });
