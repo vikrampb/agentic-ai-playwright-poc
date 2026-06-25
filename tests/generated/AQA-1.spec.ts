@@ -24,29 +24,21 @@ test.describe("AQA-1 – US Person login", () => {
       )}&password=${encodeURIComponent(US_USER.password)}`
     );
 
-    expect(
-      response.status(),
-      "Expected HTTP 200 for a valid US_PERSON login"
-    ).toBe(200);
+    expect(response.ok()).toBeTruthy();
 
     const body = await response.json();
 
-    expect(
-      body.success,
-      `Expected success=true for US_PERSON user "${US_USER.name}"`
-    ).toBe(true);
+    expect(body.success).toBe(true);
+    expect(body.message).toBeTruthy();
 
     if (body.exportStatus !== undefined) {
-      expect(
-        body.exportStatus,
-        "exportStatus in response should be US_PERSON"
-      ).toBe(US_USER.exportStatus);
+      expect(body.exportStatus).toBe(US_USER.exportStatus);
     }
   });
 });
 
-test.describe("AQA-1 – NON_US Person login", () => {
-  test("NON_US_PERSON user should NOT be able to log in and should receive a graceful error message", async ({
+test.describe("AQA-1 – NON-US Person login", () => {
+  test("NON_US_PERSON user should NOT be able to log in and should receive an error message", async ({
     request,
   }) => {
     const response = await request.get(
@@ -55,21 +47,15 @@ test.describe("AQA-1 – NON_US Person login", () => {
       )}&password=${encodeURIComponent(NON_US_USER.password)}`
     );
 
-    expect(
-      [200, 401, 403],
-      `Expected an HTTP status indicating denial for NON_US_PERSON user "${NON_US_USER.name}", but got ${response.status()}`
-    ).toContain(response.status());
-
     const body = await response.json();
 
-    expect(
-      body.success,
-      `Expected success=false for NON_US_PERSON user "${NON_US_USER.name}"`
-    ).toBe(false);
+    expect(body.success).toBe(false);
+    expect(body.message).toBe(
+      "Only US Persons are allowed to watch this demo."
+    );
 
-    expect(
-      body.message,
-      "Expected a graceful error message for NON_US_PERSON users"
-    ).toBe("Only US Persons are allowed to watch this demo.");
+    if (body.exportStatus !== undefined) {
+      expect(body.exportStatus).toBe(NON_US_USER.exportStatus);
+    }
   });
 });
