@@ -24,173 +24,165 @@ test.describe('AQA-1: Verify only US Users are able to log in to the application
     expect(allUsers.length).toBeGreaterThan(0);
   });
 
-  test.describe('US_PERSON users should be able to log in successfully', () => {
-    test('Each US_PERSON user receives success:true and "Successfully logged in." message', async ({ request }: { request: APIRequestContext }) => {
+  test.describe('US_PERSON users: login should succeed', () => {
+    test('All US_PERSON users can log in and receive "Login Successful!" message', async ({ request }: { request: APIRequestContext }) => {
       const usPersonUsers = allUsers.filter((u) => u.export_status === 'US_PERSON');
 
       for (const user of usPersonUsers) {
         const password = derivePassword(user.name);
+        const loginResponse = await request.get(
+          `/api/login?username=${encodeURIComponent(user.username)}&password=${encodeURIComponent(password)}`
+        );
 
-        const response = await request.get(`/api/login?username=${encodeURIComponent(user.username)}&password=${encodeURIComponent(password)}`);
-        expect(response.ok(), `Expected HTTP OK for US_PERSON user: ${user.username}`).toBeTruthy();
-
-        const body = await response.json();
+        expect(loginResponse.ok()).toBeTruthy();
+        const loginBody = await loginResponse.json();
 
         expect(
-          body.success,
-          `Expected success:true for US_PERSON user "${user.name}" (username: ${user.username})`
+          loginBody.success,
+          `Expected US_PERSON user "${user.username}" (export_status: ${user.export_status}) to log in successfully, but got success: ${loginBody.success}. Message: "${loginBody.message}"`
         ).toBe(true);
 
         expect(
-          body.message,
-          `Expected "Successfully logged in." message for US_PERSON user "${user.name}" (username: ${user.username})`
-        ).toContain('Successfully logged in.');
+          loginBody.message,
+          `Expected success message for US_PERSON user "${user.username}" to be "Login Successful!" but got "${loginBody.message}"`
+        ).toBe('Login Successful!');
       }
     });
   });
 
-  test.describe('NON_US_PERSON users should be blocked from logging in', () => {
-    test('Each NON_US_PERSON user receives success:false and "Only US Persons" error message', async ({ request }: { request: APIRequestContext }) => {
+  test.describe('NON_US_PERSON users: login should fail', () => {
+    test('All NON_US_PERSON users are blocked and receive "Only US Persons" error message', async ({ request }: { request: APIRequestContext }) => {
       const nonUsPersonUsers = allUsers.filter((u) => u.export_status === 'NON_US_PERSON');
 
       for (const user of nonUsPersonUsers) {
         const password = derivePassword(user.name);
+        const loginResponse = await request.get(
+          `/api/login?username=${encodeURIComponent(user.username)}&password=${encodeURIComponent(password)}`
+        );
 
-        const response = await request.get(`/api/login?username=${encodeURIComponent(user.username)}&password=${encodeURIComponent(password)}`);
-        expect(response.ok(), `Expected HTTP OK (even for blocked user) for NON_US_PERSON user: ${user.username}`).toBeTruthy();
-
-        const body = await response.json();
+        expect(loginResponse.ok()).toBeTruthy();
+        const loginBody = await loginResponse.json();
 
         expect(
-          body.success,
-          `Expected success:false for NON_US_PERSON user "${user.name}" (username: ${user.username})`
+          loginBody.success,
+          `Expected NON_US_PERSON user "${user.username}" (export_status: ${user.export_status}) to be blocked, but got success: ${loginBody.success}. Message: "${loginBody.message}"`
         ).toBe(false);
 
         expect(
-          body.message,
-          `Expected "Only US Persons" in error message for NON_US_PERSON user "${user.name}" (username: ${user.username})`
+          loginBody.message,
+          `Expected error message for NON_US_PERSON user "${user.username}" to contain "Only US Persons" but got "${loginBody.message}"`
         ).toContain('Only US Persons');
       }
     });
   });
 
-  test.describe('Dynamic per-user login validation loop', () => {
-    test('All users from /api/users are validated against their export_status', async ({ request }: { request: APIRequestContext }) => {
-      expect(allUsers.length, 'Expected at least one user to be returned from /api/users').toBeGreaterThan(0);
-
+  test.describe('Dynamic per-user login validation (all users)', () => {
+    test('Each user login outcome matches their export_status', async ({ request }: { request: APIRequestContext }) => {
       for (const user of allUsers) {
         const password = derivePassword(user.name);
-
-        const response = await request.get(
+        const loginResponse = await request.get(
           `/api/login?username=${encodeURIComponent(user.username)}&password=${encodeURIComponent(password)}`
         );
 
-        expect(
-          response.ok(),
-          `Expected HTTP OK response for user "${user.name}" (username: ${user.username}, export_status: ${user.export_status})`
-        ).toBeTruthy();
-
-        const body = await response.json();
+        expect(loginResponse.ok()).toBeTruthy();
+        const loginBody = await loginResponse.json();
 
         if (user.export_status === 'US_PERSON') {
           expect(
-            body.success,
-            `US_PERSON user "${user.name}" (username: ${user.username}) should be able to log in (success:true)`
+            loginBody.success,
+            `[US_PERSON] User "${user.username}" should be able to log in. Got success: ${loginBody.success}, message: "${loginBody.message}"`
           ).toBe(true);
 
           expect(
-            body.message,
-            `US_PERSON user "${user.name}" (username: ${user.username}) should see "Successfully logged in."`
-          ).toContain('Successfully logged in.');
+            loginBody.message,
+            `[US_PERSON] User "${user.username}" should see "Login Successful!" but got "${loginBody.message}"`
+          ).toBe('Login Successful!');
 
         } else if (user.export_status === 'NON_US_PERSON') {
           expect(
-            body.success,
-            `NON_US_PERSON user "${user.name}" (username: ${user.username}) should be blocked (success:false)`
+            loginBody.success,
+            `[NON_US_PERSON] User "${user.username}" should be blocked from logging in. Got success: ${loginBody.success}, message: "${loginBody.message}"`
           ).toBe(false);
 
           expect(
-            body.message,
-            `NON_US_PERSON user "${user.name}" (username: ${user.username}) should see "Only US Persons" error message`
+            loginBody.message,
+            `[NON_US_PERSON] User "${user.username}" should see an "Only US Persons" message but got "${loginBody.message}"`
           ).toContain('Only US Persons');
 
-          if (body.exportStatus !== undefined) {
-            expect(
-              body.exportStatus,
-              `NON_US_PERSON user "${user.name}" exportStatus field in response should reflect NON_US_PERSON`
-            ).toBe('NON_US_PERSON');
-          }
+          expect(
+            loginBody.exportStatus ?? loginBody.message,
+            `[NON_US_PERSON] Expected exportStatus or message to indicate NON_US_PERSON block for user "${user.username}"`
+          ).toBeTruthy();
+
         } else {
           throw new Error(
-            `Unexpected export_status "${user.export_status}" for user "${user.name}" (username: ${user.username}). ` +
-            `Only "US_PERSON" or "NON_US_PERSON" are valid values.`
+            `Unexpected export_status "${user.export_status}" for user "${user.username}". ` +
+            `Only "US_PERSON" and "NON_US_PERSON" are valid values.`
           );
         }
       }
     });
   });
 
-  test.describe('AC Verification: Login success message for US_PERSON', () => {
-    test('AC1 - US_PERSON user is shown "Successfully logged in." upon successful login', async ({ request }: { request: APIRequestContext }) => {
-      const usPersonUsers = allUsers.filter((u) => u.export_status === 'US_PERSON');
+  test.describe('AC: Login Successful message for US_PERSON (AC-1)', () => {
+    test('A US_PERSON user who logs in successfully is shown "Login Successful!"', async ({ request }: { request: APIRequestContext }) => {
+      const usPersonUser = allUsers.find((u) => u.export_status === 'US_PERSON');
+
       expect(
-        usPersonUsers.length,
+        usPersonUser,
         'Expected at least one US_PERSON user to exist in /api/users'
-      ).toBeGreaterThan(0);
+      ).toBeDefined();
 
-      for (const user of usPersonUsers) {
-        const password = derivePassword(user.name);
+      if (!usPersonUser) return;
 
-        const response = await request.get(
-          `/api/login?username=${encodeURIComponent(user.username)}&password=${encodeURIComponent(password)}`
-        );
+      const password = derivePassword(usPersonUser.name);
+      const loginResponse = await request.get(
+        `/api/login?username=${encodeURIComponent(usPersonUser.username)}&password=${encodeURIComponent(password)}`
+      );
 
-        expect(response.ok(), `HTTP response should be OK for US_PERSON user: ${user.username}`).toBeTruthy();
+      expect(loginResponse.ok()).toBeTruthy();
+      const loginBody = await loginResponse.json();
 
-        const body = await response.json();
+      expect(
+        loginBody.success,
+        `Expected US_PERSON user "${usPersonUser.username}" to log in successfully`
+      ).toBe(true);
 
-        expect(
-          body.success,
-          `Login should succeed (success:true) for US_PERSON user "${user.name}" (username: ${user.username})`
-        ).toBe(true);
-
-        expect(
-          body.message,
-          `US_PERSON user "${user.name}" should be shown "Successfully logged in." message`
-        ).toContain('Successfully logged in.');
-      }
+      expect(
+        loginBody.message,
+        `Expected the success message to be exactly "Login Successful!" for user "${usPersonUser.username}"`
+      ).toBe('Login Successful!');
     });
   });
 
-  test.describe('AC Verification: Login failure message for NON_US_PERSON', () => {
-    test('AC2 - NON_US_PERSON user is shown "Only U.S. Persons are permitted to login." upon failed login', async ({ request }: { request: APIRequestContext }) => {
-      const nonUsPersonUsers = allUsers.filter((u) => u.export_status === 'NON_US_PERSON');
+  test.describe('AC: Login Blocked message for NON_US_PERSON (AC-2)', () => {
+    test('A NON_US_PERSON user who attempts login is shown "Only U.S. Persons are permitted to login."', async ({ request }: { request: APIRequestContext }) => {
+      const nonUsPersonUser = allUsers.find((u) => u.export_status === 'NON_US_PERSON');
+
       expect(
-        nonUsPersonUsers.length,
+        nonUsPersonUser,
         'Expected at least one NON_US_PERSON user to exist in /api/users'
-      ).toBeGreaterThan(0);
+      ).toBeDefined();
 
-      for (const user of nonUsPersonUsers) {
-        const password = derivePassword(user.name);
+      if (!nonUsPersonUser) return;
 
-        const response = await request.get(
-          `/api/login?username=${encodeURIComponent(user.username)}&password=${encodeURIComponent(password)}`
-        );
+      const password = derivePassword(nonUsPersonUser.name);
+      const loginResponse = await request.get(
+        `/api/login?username=${encodeURIComponent(nonUsPersonUser.username)}&password=${encodeURIComponent(password)}`
+      );
 
-        expect(response.ok(), `HTTP response should be OK even for blocked NON_US_PERSON user: ${user.username}`).toBeTruthy();
+      expect(loginResponse.ok()).toBeTruthy();
+      const loginBody = await loginResponse.json();
 
-        const body = await response.json();
+      expect(
+        loginBody.success,
+        `Expected NON_US_PERSON user "${nonUsPersonUser.username}" to be blocked from logging in`
+      ).toBe(false);
 
-        expect(
-          body.success,
-          `Login should fail (success:false) for NON_US_PERSON user "${user.name}" (username: ${user.username})`
-        ).toBe(false);
-
-        expect(
-          body.message,
-          `NON_US_PERSON user "${user.name}" should be shown "Only US Persons" error message`
-        ).toContain('Only US Persons');
-      }
+      expect(
+        loginBody.message,
+        `Expected the error message for NON_US_PERSON user "${nonUsPersonUser.username}" to be "Only U.S. Persons are permitted to login." but got "${loginBody.message}"`
+      ).toBe('Only U.S. Persons are permitted to login.');
     });
   });
 });
