@@ -39,6 +39,9 @@ IMPORTANT — tests must be fully dynamic:
   5. Use test.describe and test() blocks.
   6. Use Playwright's APIRequestContext (request fixture) only — NOT page.goto.
   7. Define a TypeScript interface for the User type from /api/users.
+  8. STRICT SCOPE: Only implement test cases that are explicitly described in the
+     plain-English test cases or Jira AC. Do NOT infer, expand, or add extra test
+     cases that were not explicitly requested.
 `.trim();
 
 export async function generatePlaywrightTests(
