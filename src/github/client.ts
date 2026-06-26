@@ -51,13 +51,13 @@ export async function commitFile(filePath: string, content: string, message: str
   console.log(`📝  Committed ${filePath}`);
 }
 
-export async function triggerWorkflow(workflowFile = 'ci.yml'): Promise<void> {
+export async function triggerWorkflow(workflowFile = 'ci.yml', ref = 'main'): Promise<void> {
   await octokit.rest.actions.createWorkflowDispatch({
     owner, repo,
     workflow_id: workflowFile,
-    ref: branch,
+    ref,
   });
-  console.log(`🚀  Triggered workflow "${workflowFile}" on branch "${branch}"`);
+  console.log(`🚀  Triggered workflow "${workflowFile}" on ref "${ref}"`);
 }
 
 export interface WorkflowRunResult {
@@ -70,6 +70,7 @@ export interface WorkflowRunResult {
 export async function waitForLatestRun(
   workflowFile = 'ci.yml',
   timeoutMs = 600_000,
+  pollBranch = branch,
 ): Promise<WorkflowRunResult> {
   const pollInterval = 15_000;
   const deadline = Date.now() + timeoutMs;
@@ -80,7 +81,7 @@ export async function waitForLatestRun(
     const { data } = await octokit.rest.actions.listWorkflowRuns({
       owner, repo,
       workflow_id: workflowFile,
-      branch,
+      branch: pollBranch,
       per_page: 1,
     });
 

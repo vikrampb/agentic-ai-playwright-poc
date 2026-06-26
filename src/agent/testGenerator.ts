@@ -1,10 +1,9 @@
 /**
  * src/agent/testGenerator.ts
- * Uses the Anthropic SDK (with the Atlassian MCP) to read a Jira story
- * and synthesise Playwright TypeScript test code.
  */
 import Anthropic from '@anthropic-ai/sdk';
 import { JiraIssue } from '../jira/client';
+import { PlainEnglishTestCase } from './prompt';
 import * as dotenv from 'dotenv';
 dotenv.config();
 
@@ -12,39 +11,63 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const SYSTEM_PROMPT = `
 You are an expert QA engineer who writes Playwright TypeScript tests.
-Given a Jira user story, you MUST output ONLY valid TypeScript code – no markdown,
-no prose, no backtick fences, just raw TypeScript starting with the imports.
+You MUST output ONLY valid TypeScript code – no markdown, no prose,
+no backtick fences. Start directly with the import statements.
+
+API under test:
+  GET /api/login?username=<u>&password=<p>
+  Response: { success: boolean, message: string, exportStatus?: string }
 
 Rules:
 - Import from "@playwright/test" only.
-- The login endpoint is GET /api/login?username=<u>&password=<p>
-  It returns JSON: { success: boolean, message: string, exportStatus?: string }
-- A US_PERSON login must return { success: true }
-- A NON_US_PERSON login must return { success: false } with a graceful message.
-- Use the credentials embedded in the test data comments below; do NOT hard-code them.
-- Write one describe block per scenario (US person, Non-US person).
-- Use Playwright's APIRequestContext (request fixture) – NOT page.goto.
+- Use Playwright's APIRequestContext (request fixture) — NOT page.goto.
+- Write one describe block per logical scenario or test case provided.
+- Use ONLY the credentials supplied in the test data section.
+- For each plain-English test case given, produce one or more test blocks
+  that precisely verify the described behaviour.
+- If no plain-English test cases are supplied, derive tests from the Jira AC.
 `.trim();
 
 export async function generatePlaywrightTests(
   issue: JiraIssue,
   testData: Array<{ username: string; password: string; exportStatus: string; name: string }>,
+  plainEnglishTestCases: PlainEnglishTestCase[] = [],
 ): Promise<string> {
-  const userPrompt = `
-Jira Story: ${issue.key}
-Summary: ${issue.summary}
-Description: ${issue.description}
-Acceptance Criteria: ${issue.acceptanceCriteria || '(see description)'}
+  const testCaseSection =
+    plainEnglishTestCases.length > 0
+      ? `\nPlain-English test cases to implement:\n` +
+        plainEnglishTestCases
+          .map(
+            (tc, i) =>
+              `  ${i + 1}. Description : ${tc.description}\n` +
+              `     Endpoint    : ${tc.endpoint}\n` +
+              `     Expected    : ${tc.expectedOutcome}`,
+          )
+          .join('\n\n')
+      : '\n(No plain-English test cases — use the Jira AC above.)';
 
-Test data from the embedded SQLite database:
-${testData.map((u) => `  - name="${u.name}" username="${u.username}" password="${u.password}" export_status="${u.exportStatus}"`).join('\n')}
+  const userPrompt = `
+Jira Story : ${issue.key}
+Summary    : ${issue.summary}
+Description: ${issue.description}
+AC         : ${issue.acceptanceCriteria || '(see description)'}
+
+Test data (from embedded SQLite):
+${testData
+  .map(
+    (u) =>
+      `  - name="${u.name}" username="${u.username}" ` +
+      `password="${u.password}" export_status="${u.exportStatus}"`,
+  )
+  .join('\n')}
+${testCaseSection}
 
 Generate the complete Playwright TypeScript test file now.
 `.trim();
 
   const message = await client.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 2048,
+    max_tokens: 3000,
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: userPrompt }],
   });
@@ -54,6 +77,8 @@ Generate the complete Playwright TypeScript test file now.
     .map((b) => (b as { type: 'text'; text: string }).text)
     .join('');
 
-  // Strip accidental markdown fences
-  return text.replace(/^```(?:typescript|ts)?\n?/i, '').replace(/\n?```$/i, '').trim();
+  return text
+    .replace(/^```(?:typescript|ts)?\n?/i, '')
+    .replace(/\n?```$/i, '')
+    .trim();
 }

@@ -16,7 +16,7 @@ An end-to-end **Agentic AI framework** that autonomously:
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                  Your MacBook                       │
+│                     Setup
 │                                                     │
 │  npm run agent                                      │
 │       │                                             │

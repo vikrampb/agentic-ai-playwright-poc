@@ -125,7 +125,7 @@ async function main(): Promise<void> {
   await ensureBranch();
 
   const timestamp = new Date().toISOString();
-  const storyKeys = stories.map((s) => s.issueKey).join(', ');
+  const storyKeys = stories.map((s: { issueKey: string; plainEnglishTestCases: import("./prompt").PlainEnglishTestCase[] }) => s.issueKey).join(', ');
   const commitMsg = `feat(agent): auto-generate tests for [${storyKeys}] @ ${timestamp}`;
 
   await commitFile('playwright.config.ts', PLAYWRIGHT_CONFIG, commitMsg);
@@ -175,7 +175,7 @@ async function main(): Promise<void> {
 
   // ── Step 8: Post per-story Jira comments ──────────────────
   console.log('\n💬  Step 8 – Posting results to all Jira stories…');
-  const allKeys = stories.map((s) => s.issueKey);
+  const allKeys = stories.map((s: { issueKey: string; plainEnglishTestCases: import("./prompt").PlainEnglishTestCase[] }) => s.issueKey);
 
   for (const story of stories) {
     const { issueKey } = story;
