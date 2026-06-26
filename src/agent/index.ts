@@ -21,6 +21,7 @@ import { getAllUsers }                              from '../db/client';
 import { generatePlaywrightTests }                 from './testGenerator';
 import { collectStories, printStorySummary }       from './prompt';
 import { buildAndShowReport, buildJiraAdfBody }    from './report';
+import { saveAndOpenLoginUi }                        from './loginUi';
 import {
   ensureBranch,
   commitFile,
@@ -172,6 +173,11 @@ async function main(): Promise<void> {
 
   // ── Step 7: Download artifact + render HTML dashboard ──────
   const summary = await buildAndShowReport(run.runId, run.url, run.conclusion ?? 'unknown');
+
+  // ── Step 7b: Show mock login UI ──────────────────────
+  if (summary) {
+    saveAndOpenLoginUi(summary, run.runId);
+  }
 
   // ── Step 8: Post per-story Jira comments ──────────────────
   console.log('\n💬  Step 8 – Posting results to all Jira stories…');
