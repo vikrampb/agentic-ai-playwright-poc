@@ -13,36 +13,26 @@ dotenv.config();
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const SYSTEM_PROMPT = `
-You are an expert QA engineer who writes Playwright TypeScript tests.
-You MUST output ONLY valid TypeScript — no markdown, no prose, no backtick fences.
-Start directly with the import statements.
+You are a QA engineer. Output ONLY valid TypeScript. No markdown, no prose, no backticks.
+Start with imports.
 
-API under test (base URL comes from the Playwright config):
-  GET /api/users
-    Response: { users: Array<{ id: number, name: string, export_status: string, username: string, password: string }> }
-    export_status is either "US_PERSON" or "NON_US_PERSON"
-    The password field contains the actual login password for each user.
+APIs available:
+  GET /api/users → { users: Array<{ id, name, export_status, username, password }> }
+  GET /api/login?username=u&password=p → { success: boolean, message: string, exportStatus?: string }
 
-  GET /api/login?username=<u>&password=<p>
-    Response: { success: boolean, message: string, exportStatus?: string }
+Server messages (use these exactly):
+  Success : "Login successful. Welcome!"
+  Blocked : "Only US Persons are allowed to watch this demo."
 
-IMPORTANT — tests must be fully dynamic:
-  1. At the START of each describe block, call GET /api/users to load all users.
-  2. Use the password field returned by /api/users directly — NEVER derive or hardcode passwords.
-  3. NEVER hardcode usernames, passwords, or names anywhere in the test file.
-  4. Loop over all users returned by /api/users. For each user:
-       - If export_status === "US_PERSON"  → expect login success:true
-         The server returns message: "Login successful. Welcome!"
-       - If export_status === "NON_US_PERSON" → expect login success:false
-         The server returns message: "Only US Persons are allowed to watch this demo."
-         Assert message contains "Only US Persons" (do NOT assert the full exact string)
-  5. Use test.describe and test() blocks.
-  6. Use Playwright's APIRequestContext (request fixture) only — NOT page.goto.
-  7. Define a TypeScript interface for the User type from /api/users.
-  8. STRICT SCOPE: You are FORBIDDEN from adding any test case that was not
-     explicitly listed in the plain-English test cases section. No invalid
-     credentials tests, no edge cases, no extras of any kind. One test case
-     listed = one describe/test block generated. Nothing more.
+Rules you MUST follow:
+  1. Call GET /api/users at the start of each describe block to get users dynamically.
+  2. Use the password field from /api/users directly. Never derive or hardcode passwords.
+  3. Never hardcode usernames, names, or any credentials.
+  4. Use request fixture (APIRequestContext). Never use page.goto.
+  5. YOU MUST ONLY IMPLEMENT THE EXACT TEST CASES LISTED IN THE USER PROMPT.
+     Do NOT add edge cases, integrity checks, dynamic loops, extra describes,
+     or ANY test that is not explicitly named in the list below.
+     One plain-English test case = one test() block. No more, no less.
 `.trim();
 
 export async function generatePlaywrightTests(
@@ -92,8 +82,24 @@ IMPORTANT: Only implement the test cases listed above. Do not add any others.
     .map((b) => (b as { type: 'text'; text: string }).text)
     .join('');
 
-  return text
+  let cleaned = text
     .replace(/^```(?:typescript|ts)?\n?/i, '')
     .replace(/\n?```$/i, '')
     .trim();
+
+  // Guard against duplicated output (Claude occasionally repeats itself)
+  // Find the first import statement and check if it appears twice
+  const firstImport = cleaned.indexOf('import ');
+  const secondImport = cleaned.indexOf('import ', firstImport + 10);
+  if (secondImport !== -1) {
+    // Check if the second import block is a near-duplicate of the first half
+    const firstHalf  = cleaned.substring(0, secondImport).trim();
+    const secondHalf = cleaned.substring(secondImport).trim();
+    if (secondHalf.startsWith('import ') && firstHalf.length > 100) {
+      // Keep whichever half is longer and more complete
+      cleaned = firstHalf.length >= secondHalf.length ? firstHalf : secondHalf;
+    }
+  }
+
+  return cleaned;
 }
