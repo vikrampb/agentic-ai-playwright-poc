@@ -39,9 +39,10 @@ IMPORTANT — tests must be fully dynamic:
   5. Use test.describe and test() blocks.
   6. Use Playwright's APIRequestContext (request fixture) only — NOT page.goto.
   7. Define a TypeScript interface for the User type from /api/users.
-  8. STRICT SCOPE: Only implement test cases that are explicitly described in the
-     plain-English test cases or Jira AC. Do NOT infer, expand, or add extra test
-     cases that were not explicitly requested.
+  8. STRICT SCOPE: You are FORBIDDEN from adding any test case that was not
+     explicitly listed in the plain-English test cases section. No invalid
+     credentials tests, no edge cases, no extras of any kind. One test case
+     listed = one describe/test block generated. Nothing more.
 `.trim();
 
 export async function generatePlaywrightTests(
@@ -61,16 +62,22 @@ export async function generatePlaywrightTests(
           .join('\n\n')
       : '';
 
+  // When plain-English test cases are provided, omit the AC entirely
+  // so Claude cannot expand beyond what was explicitly requested
+  const acLine = plainEnglishTestCases.length > 0
+    ? 'AC: (ignored — implement the plain-English test cases below ONLY)'
+    : `AC: ${issue.acceptanceCriteria || '(see description)'}`;
+
   const userPrompt = `
 Jira Story : ${issue.key}
 Summary    : ${issue.summary}
-Description: ${issue.description}
-AC         : ${issue.acceptanceCriteria || '(see description)'}
+${acLine}
 ${testCaseSection}
 
 Generate the complete Playwright TypeScript test file now.
 The tests MUST use GET /api/users at runtime to discover all users dynamically.
 Never hardcode any username, password, or name.
+IMPORTANT: Only implement the test cases listed above. Do not add any others.
 `.trim();
 
   const message = await client.messages.create({
