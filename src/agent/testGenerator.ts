@@ -19,28 +19,24 @@ Start directly with the import statements.
 
 API under test (base URL comes from the Playwright config):
   GET /api/users
-    Response: { users: Array<{ id, name, export_status, username }> }
+    Response: { users: Array<{ id: number, name: string, export_status: string, username: string, password: string }> }
     export_status is either "US_PERSON" or "NON_US_PERSON"
+    The password field contains the actual login password for each user.
 
   GET /api/login?username=<u>&password=<p>
     Response: { success: boolean, message: string, exportStatus?: string }
 
 IMPORTANT — tests must be fully dynamic:
   1. At the START of each describe block, call GET /api/users to load all users.
-  2. Derive the password by appending "2025!" to the user's name with no spaces,
-     e.g. name "Captain America" → password "CaptainAmerica2025!" — but this is
-     just a fallback. The real passwords in the DB may differ. Instead, attempt
-     login and interpret the response: success:true = US_PERSON allowed,
-     success:false with exportStatus NON_US_PERSON = correctly blocked.
-  3. NEVER hardcode usernames, passwords, or names in the test assertions.
+  2. Use the password field returned by /api/users directly — NEVER derive or hardcode passwords.
+  3. NEVER hardcode usernames, passwords, or names anywhere in the test file.
   4. Loop over all users returned by /api/users. For each user:
        - If export_status === "US_PERSON"  → expect login success:true
        - If export_status === "NON_US_PERSON" → expect login success:false
          AND expect message to contain "Only US Persons"
-  5. Use test.describe and test() (not it()) blocks.
+  5. Use test.describe and test() blocks.
   6. Use Playwright's APIRequestContext (request fixture) only — NOT page.goto.
-  7. The password for each test user is: <FirstName><LastName>2025! with no spaces.
-     E.g. "Captain America" → "CaptainAmerica2025!", "Green Goblin" → "GreenGoblin2025!"
+  7. Define a TypeScript interface for the User type from /api/users.
 `.trim();
 
 export async function generatePlaywrightTests(

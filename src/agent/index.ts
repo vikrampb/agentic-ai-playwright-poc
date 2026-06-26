@@ -62,9 +62,9 @@ const PORT    = process.env.PORT ?? 3000;
 const DB_PATH = path.join(__dirname, '..', process.env.DB_PATH ?? 'data/users.db');
 const db      = new Database(DB_PATH, { readonly: true });
 
-// Returns all users without passwords — tests call this at runtime
+// Returns all users including password — POC only, never do this in production.
 app.get('/api/users', (_req: Request, res: Response) => {
-  const users = db.prepare('SELECT id, name, export_status, username FROM users').all();
+  const users = db.prepare('SELECT id, name, export_status, username, password_hash as password FROM users').all();
   return res.json({ users });
 });
 

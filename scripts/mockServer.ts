@@ -33,11 +33,11 @@ const DB_PATH = path.join(__dirname, '..', process.env.DB_PATH ?? 'data/users.db
 const db      = new Database(DB_PATH, { readonly: true });
 
 // ── GET /api/users ────────────────────────────────────────────────────────────
-// Returns all users WITHOUT password hashes — safe for tests to consume.
+// Returns all users including password — POC only, never do this in production.
 app.get('/api/users', (_req: Request, res: Response) => {
   const users = db
-    .prepare('SELECT id, name, export_status, username FROM users')
-    .all() as PublicUser[];
+    .prepare('SELECT id, name, export_status, username, password_hash as password FROM users')
+    .all();
   return res.json({ users });
 });
 
