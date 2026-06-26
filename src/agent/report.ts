@@ -11,7 +11,6 @@
 import * as fs   from 'fs';
 import * as path from 'path';
 import * as os   from 'os';
-import * as https from 'https';
 import { Octokit } from 'octokit';
 import * as dotenv from 'dotenv';
 dotenv.config();
@@ -45,73 +44,36 @@ export interface RunSummary {
 // ── Download artifact ─────────────────────────────────────────────────────────
 async function downloadArtifact(runId: number): Promise<string | null> {
   try {
-    // ── List artifacts for this run ───────────────────────────────────────────
-    const { data } = await octokit.rest.actions.listWorkflowRunArtifacts({
-      owner, repo, run_id: runId,
+    // Fetch results.json from the agent branch via the Contents API
+    // (the CI workflow commits it there after each run — no artifact auth needed)
+    const agentBranch = process.env.GITHUB_BRANCH ?? 'agent/auto-tests';
+    console.log(`   📥  Fetching results.json from branch "${agentBranch}"…`);
+
+    // Wait a few seconds for the CI commit to propagate
+    await new Promise((r) => setTimeout(r, 5_000));
+
+    const { data } = await octokit.rest.repos.getContent({
+      owner, repo,
+      path: 'playwright-report/results.json',
+      ref:  agentBranch,
     });
 
-    const artifact = data.artifacts.find(
-      (a) => a.name === 'playwright-report' || a.name === 'test-results-json',
-    );
-    if (!artifact) {
-      console.log('   ⚠️   No playwright-report artifact found');
+    if (Array.isArray(data) || !('content' in data)) {
+      console.log('   ⚠️   results.json not found on agent branch');
       return null;
     }
 
-    console.log(`   ⬇️   Downloading artifact "${artifact.name}" (${artifact.id})…`);
-
-    // ── Download zip via direct GitHub API call (handles 302 redirect) ────────
-    const token   = process.env.GITHUB_TOKEN!;
-    const apiUrl  = `https://api.github.com/repos/${owner}/${repo}/actions/artifacts/${artifact.id}/zip`;
-    const tmpZip  = path.join(os.tmpdir(), `pw-results-${runId}.zip`);
-
-    await new Promise<void>((resolve, reject) => {
-      function download(url: string, redirectCount = 0): void {
-        if (redirectCount > 5) { reject(new Error('Too many redirects')); return; }
-        const parsedUrl = new URL(url);
-        const options = {
-          hostname: parsedUrl.hostname,
-          path:     parsedUrl.pathname + parsedUrl.search,
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'User-Agent':  'agentic-ai-poc',
-            Accept:        'application/vnd.github+json',
-          },
-        };
-        https.get(options, (res) => {
-          if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
-            download(res.headers.location, redirectCount + 1);
-          } else if (res.statusCode === 200) {
-            const file = fs.createWriteStream(tmpZip);
-            res.pipe(file);
-            file.on('finish', () => { file.close(); resolve(); });
-            file.on('error', reject);
-          } else {
-            reject(new Error(`Unexpected status ${res.statusCode} downloading artifact`));
-          }
-        }).on('error', reject);
-      }
-      download(apiUrl);
-    });
-
-    // ── Unzip and find results.json ───────────────────────────────────────────
-    const { execSync } = require('child_process');
-    const tmpDir = path.join(os.tmpdir(), `pw-results-${runId}`);
-    fs.mkdirSync(tmpDir, { recursive: true });
-    execSync(`unzip -o "${tmpZip}" -d "${tmpDir}"`);
-
-    const candidates = [
-      path.join(tmpDir, 'results.json'),
-      path.join(tmpDir, 'playwright-report', 'results.json'),
-    ];
-    const jsonFile = candidates.find((p) => fs.existsSync(p)) ?? null;
-    if (!jsonFile) console.log('   ⚠️   results.json not found inside artifact zip');
-    return jsonFile;
+    const json    = Buffer.from(data.content, 'base64').toString('utf-8');
+    const tmpPath = path.join(os.tmpdir(), `pw-results-${runId}.json`);
+    fs.writeFileSync(tmpPath, json, 'utf-8');
+    console.log('   ✓   results.json fetched successfully');
+    return tmpPath;
   } catch (err) {
-    console.log('   ⚠️   Could not download artifact:', (err as Error).message);
+    console.log('   ⚠️   Could not fetch results.json:', (err as Error).message);
     return null;
   }
 }
+
 
 // ── Parse Playwright JSON report ──────────────────────────────────────────────
 function parsePlaywrightJson(jsonPath: string, runId: number, runUrl: string, conclusion: string): RunSummary {

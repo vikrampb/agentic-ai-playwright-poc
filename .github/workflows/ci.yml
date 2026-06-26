@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   actions:  read
   checks:   read
 
@@ -60,6 +60,22 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 14
+
+      - name: Commit results.json back to agent branch
+        if: always()
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin agent/auto-tests
+          git checkout agent/auto-tests
+          mkdir -p playwright-report
+          if [ -f playwright-report/results.json ]; then
+            git add playwright-report/results.json
+            git diff --cached --quiet || git commit -m "ci: update test results [skip ci]"
+            git push origin agent/auto-tests
+          else
+            echo "No results.json found — skipping commit"
+          fi
 
       - name: Kill mock server
         if: always()
