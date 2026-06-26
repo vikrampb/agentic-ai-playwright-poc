@@ -20,8 +20,8 @@ import { fetchIssue, postComment, transitionIssue } from '../jira/client';
 import { getAllUsers }                              from '../db/client';
 import { generatePlaywrightTests }                 from './testGenerator';
 import { collectStories, printStorySummary }       from './prompt';
-import { buildAndShowReport, buildJiraAdfBody }    from './report';
-import { saveAndOpenLoginUi }                        from './loginUi';
+import { buildAndShowReport, buildJiraAdfBody, openInNewBrowserSession } from './report';
+import { saveLoginUi }                               from './loginUi';
 import {
   ensureBranch,
   commitFile,
@@ -171,31 +171,36 @@ async function main(): Promise<void> {
   const resultLine = `${icon} CI result: ${run.conclusion?.toUpperCase()} | Run #${run.runId} | ${run.url}`;
   console.log(`\n${resultLine}`);
 
-  // ── Step 7: Download artifact + render HTML dashboard ──────
-  const summary = await buildAndShowReport(run.runId, run.url, run.conclusion ?? 'unknown');
+  // ── Step 7: Build reports + open both in a new browser session ─────────
+  const reportResult = await buildAndShowReport(run.runId, run.url, run.conclusion ?? 'unknown');
 
-  // ── Step 7b: Show mock login UI (opens alongside the dashboard) ──────────
-  if (summary) {
-    // Small delay so both tabs open cleanly in the browser
-    await new Promise((r) => setTimeout(r, 600));
-    saveAndOpenLoginUi(summary, run.runId);
-    console.log('   🖥️   Both report and login UI are open in your browser');
+  const uiSummary = reportResult?.summary ?? {
+    runId:      run.runId,
+    runUrl:     run.url,
+    conclusion: run.conclusion ?? 'unknown',
+    startedAt:  new Date().toUTCString(),
+    totalTests: 0,
+    passed:     0,
+    failed:     0,
+    skipped:    0,
+    durationMs: 0,
+    tests:      [],
+  };
+
+  const loginUiPath  = saveLoginUi(uiSummary, run.runId);
+  const reportPath   = reportResult?.reportPath;
+
+  console.log('\n🌐  Step 7b – Opening both views in a new browser session…');
+  if (reportPath) {
+    openInNewBrowserSession(reportPath, loginUiPath);
   } else {
-    // Even without a summary, open the login UI with a placeholder
-    const { saveAndOpenLoginUi: openUi } = require('./loginUi');
-    const placeholderSummary = {
-      runId:      run.runId,
-      runUrl:     run.url,
-      conclusion: run.conclusion ?? 'unknown',
-      startedAt:  new Date().toUTCString(),
-      totalTests: 0,
-      passed:     0,
-      failed:     0,
-      skipped:    0,
-      durationMs: 0,
-      tests:      [],
-    };
-    saveAndOpenLoginUi(placeholderSummary, run.runId);
+    // No test dashboard available — open login UI only
+    try {
+      const { execSync } = require('child_process');
+      execSync(`open -n "${loginUiPath}"`);
+    } catch {
+      console.log(`   📄  Login UI saved to: ${loginUiPath}`);
+    }
   }
 
   // ── Step 8: Post per-story Jira comments ──────────────────
@@ -206,12 +211,12 @@ async function main(): Promise<void> {
     const { issueKey } = story;
     const issue = issueMap[issueKey];
 
-    if (summary) {
+    if (reportResult?.summary) {
       // Rich comment with ADF test-results table
-      const adfBody = buildJiraAdfBody(summary, issueKey, allKeys);
+      const adfBody = buildJiraAdfBody(reportResult.summary, issueKey, allKeys);
       await postComment(issueKey, '', adfBody);
     } else {
-      // Fallback plain-text comment if artifact wasn't available
+      // Fallback plain-text comment if results.json wasn't available
       const siblings  = allKeys.filter((k) => k !== issueKey);
       const testedWith = siblings.length ? `\nTested alongside: ${siblings.join(', ')}` : '';
       const comment = [

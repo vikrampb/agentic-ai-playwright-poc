@@ -168,18 +168,13 @@ export function buildLoginUi(summary: RunSummary, runId: number): string {
 </html>`;
 }
 
-export function saveAndOpenLoginUi(summary: RunSummary, runId: number): void {
-  const html        = buildLoginUi(summary, runId);
-  const reportsDir  = path.join(process.cwd(), 'local-reports');
+/** Save the login UI HTML and return its path (caller handles opening). */
+export function saveLoginUi(summary: RunSummary, runId: number): string {
+  const html       = buildLoginUi(summary, runId);
+  const reportsDir = path.join(process.cwd(), 'local-reports');
   fs.mkdirSync(reportsDir, { recursive: true });
-  const outPath     = path.join(reportsDir, `login-ui-${runId}.html`);
+  const outPath    = path.join(reportsDir, `login-ui-${runId}.html`);
   fs.writeFileSync(outPath, html, 'utf-8');
-
-  try {
-    const { execSync } = require('child_process');
-    execSync(`open "${outPath}"`);
-    console.log(`   🖥️   Login UI opened in browser: ${outPath}`);
-  } catch {
-    console.log(`   📄  Login UI saved to: ${outPath}`);
-  }
+  console.log(`   💾  Login UI saved: ${outPath}`);
+  return outPath;
 }

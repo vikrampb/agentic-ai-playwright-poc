@@ -337,22 +337,66 @@ export function buildJiraAdfBody(summary: RunSummary, issueKey: string, allKeys:
   };
 }
 
-// ── Save HTML and open in browser ─────────────────────────────────────────────
-function saveAndOpen(html: string, runId: number): string {
+// ── Save HTML (does NOT open — caller handles opening) ───────────────────────
+function saveHtml(html: string, runId: number, prefix: string): string {
   const reportsDir = path.join(process.cwd(), 'local-reports');
   fs.mkdirSync(reportsDir, { recursive: true });
-  const outPath = path.join(reportsDir, `report-${runId}.html`);
+  const outPath = path.join(reportsDir, `${prefix}-${runId}.html`);
   fs.writeFileSync(outPath, html, 'utf-8');
-
-  // Open in default browser (macOS)
-  try {
-    const { execSync } = require('child_process');
-    execSync(`open "${outPath}"`);
-    console.log(`   🌐  Dashboard opened in browser: ${outPath}`);
-  } catch {
-    console.log(`   📄  Dashboard saved to: ${outPath}`);
-  }
   return outPath;
+}
+
+/** Open two HTML files in a NEW browser session with each on its own tab. */
+export function openInNewBrowserSession(file1: string, file2: string): void {
+  const { execSync } = require('child_process');
+
+  // Try Google Chrome first (supports --new-window with multiple URLs)
+  const chromePaths = [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+  ];
+
+  for (const chromePath of chromePaths) {
+    if (fs.existsSync(chromePath)) {
+      try {
+        // --new-window opens a brand-new window; listing two files opens them as tabs
+        execSync(
+          `"${chromePath}" --new-window "file://${file1}" "file://${file2}" &`,
+          { shell: true }
+        );
+        console.log(`   🌐  Opened new browser session with both tabs`);
+        return;
+      } catch { continue; }
+    }
+  }
+
+  // Fallback: Safari with a new window via AppleScript
+  try {
+    const script = `
+      tell application "Safari"
+        activate
+        make new document with properties {URL:"file://${file1}"}
+        delay 0.5
+        tell window 1
+          set current tab to (make new tab with properties {URL:"file://${file2}"})
+        end tell
+      end tell
+    `.trim();
+    execSync(`osascript -e '${script.replace(/'/g, "\'")}'`);
+    console.log(`   🌐  Opened new Safari session with both tabs`);
+    return;
+  } catch { /* fall through */ }
+
+  // Last resort: open each file separately
+  try {
+    execSync(`open -n "${file1}"`);
+    execSync(`sleep 0.5 && open "${file2}"`);
+    console.log(`   🌐  Opened both files in browser`);
+  } catch {
+    console.log(`   📄  Reports saved to local-reports/`);
+  }
 }
 
 // ── Public entry point ────────────────────────────────────────────────────────
@@ -360,7 +404,7 @@ export async function buildAndShowReport(
   runId: number,
   runUrl: string,
   conclusion: string,
-): Promise<RunSummary | null> {
+): Promise<{ summary: RunSummary; reportPath: string } | null> {
   console.log('\n📊  Building test results dashboard…');
 
   const jsonPath = await downloadArtifact(runId);
@@ -369,16 +413,11 @@ export async function buildAndShowReport(
     return null;
   }
 
-  const summary = parsePlaywrightJson(jsonPath, runId, runUrl, conclusion);
-
-  // ── Open both windows ─────────────────────────────────────────────────────
-  // 1. HTML test results dashboard
-  const html = buildHtmlDashboard(summary);
-  saveAndOpen(html, runId);
-
-  // 2. Give the first tab a moment to open before the second
-  await new Promise((r) => setTimeout(r, 800));
+  const summary    = parsePlaywrightJson(jsonPath, runId, runUrl, conclusion);
+  const html       = buildHtmlDashboard(summary);
+  const reportPath = saveHtml(html, runId, 'report');
 
   console.log(`   ✓  ${summary.totalTests} tests — ${summary.passed} passed, ${summary.failed} failed, ${summary.skipped} skipped`);
-  return summary;
+  console.log(`   💾  Dashboard saved: ${reportPath}`);
+  return { summary, reportPath };
 }
