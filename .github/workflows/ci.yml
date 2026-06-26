@@ -73,8 +73,11 @@ jobs:
     if: always()
 
     steps:
-      - name: Checkout (to read test file names)
+      - name: Checkout agent branch (contains generated test files)
         uses: actions/checkout@v4
+        with:
+          ref: agent/auto-tests
+          fetch-depth: 1
 
       - name: Determine test outcome
         id: outcome
@@ -90,10 +93,15 @@ jobs:
       - name: Discover Jira issue keys from test files
         id: keys
         run: |
-          # Each generated test file is named <ISSUE-KEY>.spec.ts
-          KEYS=$(ls tests/generated/*.spec.ts 2>/dev/null \
-            | xargs -I{} basename {} .spec.ts \
-            | tr '\n' ',' | sed 's/,$//')
+          # Test files on agent branch are named <ISSUE-KEY>.spec.ts
+          KEYS=$(ls tests/generated/*.spec.ts 2>/dev/null             | xargs -I{} basename {} .spec.ts             | tr '\n' ',' | sed 's/,$//') || true
+
+          # Fallback to the Jira secret if no files found
+          if [ -z "$KEYS" ]; then
+            KEYS="${{ secrets.JIRA_ISSUE_KEY }}"
+            echo "No spec files found — falling back to JIRA_ISSUE_KEY secret"
+          fi
+
           echo "Found issue keys: $KEYS"
           echo "keys=$KEYS" >> $GITHUB_OUTPUT
 

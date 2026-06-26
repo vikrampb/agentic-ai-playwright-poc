@@ -45,49 +45,68 @@ export interface RunSummary {
 // ── Download artifact ─────────────────────────────────────────────────────────
 async function downloadArtifact(runId: number): Promise<string | null> {
   try {
+    // ── List artifacts for this run ───────────────────────────────────────────
     const { data } = await octokit.rest.actions.listWorkflowRunArtifacts({
       owner, repo, run_id: runId,
     });
 
-    const artifact = data.artifacts.find((a) => a.name === 'test-results-json');
+    const artifact = data.artifacts.find(
+      (a) => a.name === 'playwright-report' || a.name === 'test-results-json',
+    );
     if (!artifact) {
-      console.log('   ⚠️   test-results-json artifact not found (tests may have failed before report was written)');
+      console.log('   ⚠️   No playwright-report artifact found');
       return null;
     }
 
-    const { data: dl } = await octokit.rest.actions.downloadArtifact({
-      owner, repo,
-      artifact_id: artifact.id,
-      archive_format: 'zip',
-    });
+    console.log(`   ⬇️   Downloading artifact "${artifact.name}" (${artifact.id})…`);
 
-    // dl.url is a redirect URL — follow it to get the zip bytes
-    const zipUrl = (dl as unknown as { url: string }).url ?? String(dl);
-    const tmpZip = path.join(os.tmpdir(), `pw-results-${runId}.zip`);
+    // ── Download zip via direct GitHub API call (handles 302 redirect) ────────
+    const token   = process.env.GITHUB_TOKEN!;
+    const apiUrl  = `https://api.github.com/repos/${owner}/${repo}/actions/artifacts/${artifact.id}/zip`;
+    const tmpZip  = path.join(os.tmpdir(), `pw-results-${runId}.zip`);
 
     await new Promise<void>((resolve, reject) => {
-      const file = fs.createWriteStream(tmpZip);
-      https.get(zipUrl, (res) => {
-        if (res.statusCode === 302 || res.statusCode === 301) {
-          https.get(res.headers.location!, (res2) => {
-            res2.pipe(file);
+      function download(url: string, redirectCount = 0): void {
+        if (redirectCount > 5) { reject(new Error('Too many redirects')); return; }
+        const parsedUrl = new URL(url);
+        const options = {
+          hostname: parsedUrl.hostname,
+          path:     parsedUrl.pathname + parsedUrl.search,
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'User-Agent':  'agentic-ai-poc',
+            Accept:        'application/vnd.github+json',
+          },
+        };
+        https.get(options, (res) => {
+          if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
+            download(res.headers.location, redirectCount + 1);
+          } else if (res.statusCode === 200) {
+            const file = fs.createWriteStream(tmpZip);
+            res.pipe(file);
             file.on('finish', () => { file.close(); resolve(); });
-          }).on('error', reject);
-        } else {
-          res.pipe(file);
-          file.on('finish', () => { file.close(); resolve(); });
-        }
-      }).on('error', reject);
+            file.on('error', reject);
+          } else {
+            reject(new Error(`Unexpected status ${res.statusCode} downloading artifact`));
+          }
+        }).on('error', reject);
+      }
+      download(apiUrl);
     });
 
-    // Unzip using Node's built-in (no extra deps)
+    // ── Unzip and find results.json ───────────────────────────────────────────
     const { execSync } = require('child_process');
     const tmpDir = path.join(os.tmpdir(), `pw-results-${runId}`);
     fs.mkdirSync(tmpDir, { recursive: true });
     execSync(`unzip -o "${tmpZip}" -d "${tmpDir}"`);
 
-    const jsonFile = path.join(tmpDir, 'results.json');
-    return fs.existsSync(jsonFile) ? jsonFile : null;
+    const candidates = [
+      path.join(tmpDir, 'results.json'),
+      path.join(tmpDir, 'playwright-report', 'results.json'),
+    ];
+    const jsonFile = candidates.find((p) => fs.existsSync(p)) ?? null;
+    if (!jsonFile) console.log('   ⚠️   results.json not found inside artifact zip');
+    return jsonFile;
   } catch (err) {
     console.log('   ⚠️   Could not download artifact:', (err as Error).message);
     return null;
