@@ -10,10 +10,16 @@ interface User {
   username: string; password_hash: string;
 }
 
-const app  = express();
-const PORT = process.env.PORT ?? 3000;
+const app     = express();
+const PORT    = process.env.PORT ?? 3000;
 const DB_PATH = path.join(__dirname, '..', process.env.DB_PATH ?? 'data/users.db');
-const db = new Database(DB_PATH, { readonly: true });
+const db      = new Database(DB_PATH, { readonly: true });
+
+// Returns all users without passwords — tests call this at runtime
+app.get('/api/users', (_req: Request, res: Response) => {
+  const users = db.prepare('SELECT id, name, export_status, username FROM users').all();
+  return res.json({ users });
+});
 
 app.get('/api/login', (req: Request, res: Response) => {
   const { username, password } = req.query as { username?: string; password?: string };
@@ -29,14 +35,14 @@ app.get('/api/login', (req: Request, res: Response) => {
 
   if (user.export_status === 'NON_US_PERSON')
     return res.status(200).json({
-      success: false,
-      message: 'Only US Persons are allowed to watch this demo.',
+      success:      false,
+      message:      'Only US Persons are allowed to watch this demo.',
       exportStatus: user.export_status,
     });
 
   return res.status(200).json({
-    success: true,
-    message: 'Login successful. Welcome!',
+    success:      true,
+    message:      'Login successful. Welcome!',
     exportStatus: user.export_status,
   });
 });
@@ -44,5 +50,5 @@ app.get('/api/login', (req: Request, res: Response) => {
 app.get('/health', (_req: Request, res: Response) => res.json({ status: 'ok' }));
 
 app.listen(Number(PORT), '0.0.0.0', () =>
-  console.log(`Mock server running on http://0.0.0.0:${PORT}`)
+  console.log(`Mock server on http://0.0.0.0:${PORT}`)
 );
