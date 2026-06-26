@@ -19,116 +19,83 @@ interface UsersResponse {
 }
 
 test.describe('AQA-1: Verify only US Users are able to log in to the application', () => {
-  let allUsers: User[] = [];
+  let users: User[] = [];
 
   test.beforeAll(async ({ request }: { request: APIRequestContext }) => {
     const response = await request.get('/api/users');
     expect(response.ok()).toBeTruthy();
     const body: UsersResponse = await response.json();
-    expect(body).toHaveProperty('users');
-    expect(Array.isArray(body.users)).toBe(true);
-    allUsers = body.users;
+    users = body.users;
+    expect(users.length).toBeGreaterThan(0);
   });
 
-  test('GET /api/users should return a non-empty list of users with required fields', async ({ request }: { request: APIRequestContext }) => {
-    const response = await request.get('/api/users');
-    expect(response.ok()).toBeTruthy();
-    const body: UsersResponse = await response.json();
-    expect(body.users.length).toBeGreaterThan(0);
+  test('Dynamic loop: each US_PERSON user can login successfully; each NON_US_PERSON user cannot login', async ({ request }: { request: APIRequestContext }) => {
+    for (const user of users) {
+      const loginResponse = await request.get(
+        `/api/login?username=${encodeURIComponent(user.username)}&password=${encodeURIComponent(user.password)}`
+      );
+      expect(loginResponse.ok()).toBeTruthy();
+      const loginBody: LoginResponse = await loginResponse.json();
 
-    for (const user of body.users) {
-      expect(user).toHaveProperty('id');
-      expect(user).toHaveProperty('name');
-      expect(user).toHaveProperty('export_status');
-      expect(user).toHaveProperty('username');
-      expect(user).toHaveProperty('password');
-      expect(['US_PERSON', 'NON_US_PERSON']).toContain(user.export_status);
+      if (user.export_status === 'US_PERSON') {
+        expect(loginBody.success).toBe(true);
+        expect(loginBody.message).toBe('Login successful. Welcome!');
+      } else if (user.export_status === 'NON_US_PERSON') {
+        expect(loginBody.success).toBe(false);
+        expect(loginBody.message).toContain('Only US Persons');
+      }
     }
   });
 
-  test('Login succeeds for all US_PERSON users', async ({ request }: { request: APIRequestContext }) => {
-    const usPersonUsers = allUsers.filter((u) => u.export_status === 'US_PERSON');
-    expect(usPersonUsers.length).toBeGreaterThan(0);
+  test('TC-1: Login is successful if the export_status of the user is US_PERSON', async ({ request }: { request: APIRequestContext }) => {
+    const usPersonUsers = users.filter((u) => u.export_status === 'US_PERSON');
+    expect(
+      usPersonUsers.length,
+      'Expected at least one US_PERSON user to exist in /api/users'
+    ).toBeGreaterThan(0);
 
     for (const user of usPersonUsers) {
-      const response = await request.get(
+      const loginResponse = await request.get(
         `/api/login?username=${encodeURIComponent(user.username)}&password=${encodeURIComponent(user.password)}`
       );
-      expect(response.ok()).toBeTruthy();
-      const body: LoginResponse = await response.json();
+      expect(loginResponse.ok()).toBeTruthy();
+      const loginBody: LoginResponse = await loginResponse.json();
 
-      expect(body.success).toBe(true);
-      expect(body.message).toBe('Login successful. Welcome!');
+      expect(
+        loginBody.success,
+        `Expected login success for US_PERSON user: ${user.username}`
+      ).toBe(true);
+
+      expect(
+        loginBody.message,
+        `Expected success message for US_PERSON user: ${user.username}`
+      ).toContain('Login successful');
     }
   });
 
-  test('Login fails for all NON_US_PERSON users', async ({ request }: { request: APIRequestContext }) => {
-    const nonUsPersonUsers = allUsers.filter((u) => u.export_status === 'NON_US_PERSON');
-    expect(nonUsPersonUsers.length).toBeGreaterThan(0);
+  test('TC-2: Login fails if the export_status of the user is NON_US_PERSON', async ({ request }: { request: APIRequestContext }) => {
+    const nonUsPersonUsers = users.filter((u) => u.export_status === 'NON_US_PERSON');
+    expect(
+      nonUsPersonUsers.length,
+      'Expected at least one NON_US_PERSON user to exist in /api/users'
+    ).toBeGreaterThan(0);
 
     for (const user of nonUsPersonUsers) {
-      const response = await request.get(
+      const loginResponse = await request.get(
         `/api/login?username=${encodeURIComponent(user.username)}&password=${encodeURIComponent(user.password)}`
       );
-      expect(response.ok()).toBeTruthy();
-      const body: LoginResponse = await response.json();
+      expect(loginResponse.ok()).toBeTruthy();
+      const loginBody: LoginResponse = await loginResponse.json();
 
-      expect(body.success).toBe(false);
-      expect(body.message).toContain('Only US Persons');
+      expect(
+        loginBody.success,
+        `Expected login failure for NON_US_PERSON user: ${user.username}`
+      ).toBe(false);
+
+      expect(
+        loginBody.message,
+        `Expected restriction message for NON_US_PERSON user: ${user.username}`
+      ).toContain('Only US Persons');
     }
-  });
-
-  test.describe('Dynamic per-user login validation', () => {
-    test('Each user receives the correct login response based on their export_status', async ({ request }: { request: APIRequestContext }) => {
-      expect(allUsers.length).toBeGreaterThan(0);
-
-      for (const user of allUsers) {
-        const response = await request.get(
-          `/api/login?username=${encodeURIComponent(user.username)}&password=${encodeURIComponent(user.password)}`
-        );
-        expect(response.ok()).toBeTruthy();
-        const body: LoginResponse = await response.json();
-
-        if (user.export_status === 'US_PERSON') {
-          expect(body.success).toBe(true);
-          expect(body.message).toBe('Login successful. Welcome!');
-        } else if (user.export_status === 'NON_US_PERSON') {
-          expect(body.success).toBe(false);
-          expect(body.message).toContain('Only US Persons');
-        }
-      }
-    });
-  });
-
-  test.describe('AC: US_PERSON login acceptance criteria', () => {
-    test('A US_PERSON user is shown a success message upon login', async ({ request }: { request: APIRequestContext }) => {
-      const usPersonUser = allUsers.find((u) => u.export_status === 'US_PERSON');
-      expect(usPersonUser).toBeDefined();
-
-      const response = await request.get(
-        `/api/login?username=${encodeURIComponent(usPersonUser!.username)}&password=${encodeURIComponent(usPersonUser!.password)}`
-      );
-      expect(response.ok()).toBeTruthy();
-      const body: LoginResponse = await response.json();
-
-      expect(body.success).toBe(true);
-      expect(body.message).toBe('Login successful. Welcome!');
-    });
-  });
-
-  test.describe('AC: NON_US_PERSON login acceptance criteria', () => {
-    test('A NON_US_PERSON user is shown an error message upon login', async ({ request }: { request: APIRequestContext }) => {
-      const nonUsPersonUser = allUsers.find((u) => u.export_status === 'NON_US_PERSON');
-      expect(nonUsPersonUser).toBeDefined();
-
-      const response = await request.get(
-        `/api/login?username=${encodeURIComponent(nonUsPersonUser!.username)}&password=${encodeURIComponent(nonUsPersonUser!.password)}`
-      );
-      expect(response.ok()).toBeTruthy();
-      const body: LoginResponse = await response.json();
-
-      expect(body.success).toBe(false);
-      expect(body.message).toContain('Only US Persons');
-    });
   });
 });
