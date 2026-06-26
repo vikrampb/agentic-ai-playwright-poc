@@ -32,8 +32,10 @@ IMPORTANT — tests must be fully dynamic:
   3. NEVER hardcode usernames, passwords, or names anywhere in the test file.
   4. Loop over all users returned by /api/users. For each user:
        - If export_status === "US_PERSON"  → expect login success:true
+         The server returns message: "Login successful. Welcome!"
        - If export_status === "NON_US_PERSON" → expect login success:false
-         AND expect message to contain "Only US Persons"
+         The server returns message: "Only US Persons are allowed to watch this demo."
+         Assert message contains "Only US Persons" (do NOT assert the full exact string)
   5. Use test.describe and test() blocks.
   6. Use Playwright's APIRequestContext (request fixture) only — NOT page.goto.
   7. Define a TypeScript interface for the User type from /api/users.
