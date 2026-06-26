@@ -1,8 +1,15 @@
 /**
  * src/agent/testGenerator.ts
- * Generates Playwright TypeScript tests from a Jira story.
- * Tests are fully dynamic — they fetch users from GET /api/users
- * at runtime, so adding/changing DB records requires no test changes.
+ * ─────────────────────────────────────────────────────────────
+ * Generates Playwright TypeScript test files.
+ *
+ * Strategy: use a fixed scaffold template so the test structure
+ * is 100% controlled by the agent. Claude is only called to
+ * generate the assertion body for each plain-English test case.
+ * This prevents Claude from adding unrequested tests.
+ *
+ * If no plain-English test cases are provided, falls back to
+ * two default tests derived from the Jira story export-control AC.
  */
 import Anthropic from '@anthropic-ai/sdk';
 import { JiraIssue } from '../jira/client';
@@ -12,94 +19,139 @@ dotenv.config();
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const SYSTEM_PROMPT = `
-You are a QA engineer. Output ONLY valid TypeScript. No markdown, no prose, no backticks.
-Start with imports.
+// ── Fixed file header — always the same ───────────────────────────────────────
+const FILE_HEADER = `import { test, expect, APIRequestContext } from '@playwright/test';
 
-APIs available:
-  GET /api/users → { users: Array<{ id, name, export_status, username, password }> }
-  GET /api/login?username=u&password=p → { success: boolean, message: string, exportStatus?: string }
+interface User {
+  id:            number;
+  name:          string;
+  export_status: 'US_PERSON' | 'NON_US_PERSON';
+  username:      string;
+  password:      string;
+}
 
-Server messages (use these exactly):
-  Success : "Login successful. Welcome!"
-  Blocked : "Only US Persons are allowed to watch this demo."
+interface LoginResponse {
+  success:       boolean;
+  message:       string;
+  exportStatus?: string;
+}
 
-Rules you MUST follow:
-  1. Call GET /api/users at the start of each describe block to get users dynamically.
-  2. Use the password field from /api/users directly. Never derive or hardcode passwords.
-  3. Never hardcode usernames, names, or any credentials.
-  4. Use request fixture (APIRequestContext). Never use page.goto.
-  5. YOU MUST ONLY IMPLEMENT THE EXACT TEST CASES LISTED IN THE USER PROMPT.
-     Do NOT add edge cases, integrity checks, dynamic loops, extra describes,
-     or ANY test that is not explicitly named in the list below.
-     One plain-English test case = one test() block. No more, no less.
-`.trim();
+async function getUsers(request: APIRequestContext): Promise<User[]> {
+  const res  = await request.get('/api/users');
+  const body = await res.json();
+  return body.users as User[];
+}
 
-export async function generatePlaywrightTests(
-  issue: JiraIssue,
-  plainEnglishTestCases: PlainEnglishTestCase[] = [],
+async function login(
+  request:  APIRequestContext,
+  username: string,
+  password: string,
+): Promise<LoginResponse> {
+  const res = await request.get('/api/login', { params: { username, password } });
+  return res.json();
+}
+`;
+
+// ── Default tests used when no plain-English cases are provided ───────────────
+function defaultTestBlocks(issueKey: string): string {
+  return `
+test.describe('${issueKey} – Export Control Login', () => {
+  test('US_PERSON user login should succeed', async ({ request }) => {
+    const users  = await getUsers(request);
+    const user   = users.find((u) => u.export_status === 'US_PERSON');
+    expect(user, 'No US_PERSON user found in /api/users').toBeDefined();
+
+    const result = await login(request, user!.username, user!.password);
+    expect(result.success).toBe(true);
+    expect(result.message).toContain('Login successful');
+  });
+
+  test('NON_US_PERSON user login should be denied with a clear message', async ({ request }) => {
+    const users  = await getUsers(request);
+    const user   = users.find((u) => u.export_status === 'NON_US_PERSON');
+    expect(user, 'No NON_US_PERSON user found in /api/users').toBeDefined();
+
+    const result = await login(request, user!.username, user!.password);
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('Only US Persons');
+  });
+});
+`.trimStart();
+}
+
+// ── Ask Claude to generate ONLY the body of a single test ─────────────────────
+async function generateTestBody(
+  testCase: PlainEnglishTestCase,
+  issueKey: string,
 ): Promise<string> {
-  const testCaseSection =
-    plainEnglishTestCases.length > 0
-      ? `\nAdditional plain-English test cases to implement ON TOP of the dynamic loop:\n` +
-        plainEnglishTestCases
-          .map(
-            (tc, i) =>
-              `  ${i + 1}. ${tc.description}\n` +
-              `     Endpoint : ${tc.endpoint}\n` +
-              `     Expected : ${tc.expectedOutcome}`,
-          )
-          .join('\n\n')
-      : '';
+  const prompt = `
+You are writing the BODY of a single Playwright TypeScript test function.
+Output ONLY the statements that go inside the async ({ request }) => { } block.
+No function signature, no describe block, no imports, no comments.
 
-  // When plain-English test cases are provided, omit the AC entirely
-  // so Claude cannot expand beyond what was explicitly requested
-  const acLine = plainEnglishTestCases.length > 0
-    ? 'AC: (ignored — implement the plain-English test cases below ONLY)'
-    : `AC: ${issue.acceptanceCriteria || '(see description)'}`;
+Available helpers already defined above:
+  getUsers(request) → Promise<User[]>
+    User: { id, name, export_status: "US_PERSON"|"NON_US_PERSON", username, password }
 
-  const userPrompt = `
-Jira Story : ${issue.key}
-Summary    : ${issue.summary}
-${acLine}
-${testCaseSection}
+  login(request, username, password) → Promise<LoginResponse>
+    LoginResponse: { success: boolean, message: string, exportStatus?: string }
 
-Generate the complete Playwright TypeScript test file now.
-The tests MUST use GET /api/users at runtime to discover all users dynamically.
-Never hardcode any username, password, or name.
-IMPORTANT: Only implement the test cases listed above. Do not add any others.
+Server messages:
+  On success  : message contains "Login successful"
+  On blocked  : message contains "Only US Persons"
+
+Test case to implement:
+  Description : ${testCase.description}
+  Endpoint    : ${testCase.endpoint}
+  Expected    : ${testCase.expectedOutcome}
+
+Write only the test body statements. Use the password field from getUsers() directly.
 `.trim();
 
   const message = await client.messages.create({
     model:      'claude-sonnet-4-6',
-    max_tokens: 3000,
-    system:     SYSTEM_PROMPT,
-    messages:   [{ role: 'user', content: userPrompt }],
+    max_tokens: 800,
+    messages:   [{ role: 'user', content: prompt }],
   });
 
-  const text = message.content
+  return message.content
     .filter((b) => b.type === 'text')
     .map((b) => (b as { type: 'text'; text: string }).text)
-    .join('');
-
-  let cleaned = text
+    .join('')
     .replace(/^```(?:typescript|ts)?\n?/i, '')
     .replace(/\n?```$/i, '')
     .trim();
+}
 
-  // Guard against duplicated output (Claude occasionally repeats itself)
-  // Find the first import statement and check if it appears twice
-  const firstImport = cleaned.indexOf('import ');
-  const secondImport = cleaned.indexOf('import ', firstImport + 10);
-  if (secondImport !== -1) {
-    // Check if the second import block is a near-duplicate of the first half
-    const firstHalf  = cleaned.substring(0, secondImport).trim();
-    const secondHalf = cleaned.substring(secondImport).trim();
-    if (secondHalf.startsWith('import ') && firstHalf.length > 100) {
-      // Keep whichever half is longer and more complete
-      cleaned = firstHalf.length >= secondHalf.length ? firstHalf : secondHalf;
-    }
+// ── Main export ───────────────────────────────────────────────────────────────
+export async function generatePlaywrightTests(
+  issue: JiraIssue,
+  plainEnglishTestCases: PlainEnglishTestCase[] = [],
+): Promise<string> {
+  // No plain-English cases → use the fixed default tests
+  if (plainEnglishTestCases.length === 0) {
+    return FILE_HEADER + '\n' + defaultTestBlocks(issue.key);
   }
 
-  return cleaned;
+  // Build one test block per plain-English case, Claude only writes the body
+  const testBlocks: string[] = [];
+
+  for (const tc of plainEnglishTestCases) {
+    console.log(`         🤖  Generating body for: "${tc.description}"`);
+    const body = await generateTestBody(tc, issue.key);
+
+    const block = `
+  test('${tc.description}', async ({ request }) => {
+${body.split('\n').map((l) => '    ' + l).join('\n')}
+  });`;
+    testBlocks.push(block);
+  }
+
+  const describeBlock = `
+test.describe('${issue.key} – ${issue.summary}', () => {
+${testBlocks.join('\n')}
+});
+`.trimStart();
+
+  return FILE_HEADER + '\n' + describeBlock;
 }
