@@ -370,8 +370,14 @@ export async function buildAndShowReport(
   }
 
   const summary = parsePlaywrightJson(jsonPath, runId, runUrl, conclusion);
-  const html    = buildHtmlDashboard(summary);
+
+  // ── Open both windows ─────────────────────────────────────────────────────
+  // 1. HTML test results dashboard
+  const html = buildHtmlDashboard(summary);
   saveAndOpen(html, runId);
+
+  // 2. Give the first tab a moment to open before the second
+  await new Promise((r) => setTimeout(r, 800));
 
   console.log(`   ✓  ${summary.totalTests} tests — ${summary.passed} passed, ${summary.failed} failed, ${summary.skipped} skipped`);
   return summary;

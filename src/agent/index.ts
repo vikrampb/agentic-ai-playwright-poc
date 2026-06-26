@@ -174,9 +174,28 @@ async function main(): Promise<void> {
   // ── Step 7: Download artifact + render HTML dashboard ──────
   const summary = await buildAndShowReport(run.runId, run.url, run.conclusion ?? 'unknown');
 
-  // ── Step 7b: Show mock login UI ──────────────────────
+  // ── Step 7b: Show mock login UI (opens alongside the dashboard) ──────────
   if (summary) {
+    // Small delay so both tabs open cleanly in the browser
+    await new Promise((r) => setTimeout(r, 600));
     saveAndOpenLoginUi(summary, run.runId);
+    console.log('   🖥️   Both report and login UI are open in your browser');
+  } else {
+    // Even without a summary, open the login UI with a placeholder
+    const { saveAndOpenLoginUi: openUi } = require('./loginUi');
+    const placeholderSummary = {
+      runId:      run.runId,
+      runUrl:     run.url,
+      conclusion: run.conclusion ?? 'unknown',
+      startedAt:  new Date().toUTCString(),
+      totalTests: 0,
+      passed:     0,
+      failed:     0,
+      skipped:    0,
+      durationMs: 0,
+      tests:      [],
+    };
+    saveAndOpenLoginUi(placeholderSummary, run.runId);
   }
 
   // ── Step 8: Post per-story Jira comments ──────────────────
