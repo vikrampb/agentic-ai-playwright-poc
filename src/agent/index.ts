@@ -223,8 +223,9 @@ async function main(): Promise<void> {
   } else {
     // No test dashboard available — open login UI only
     try {
-      const { execSync } = require('child_process');
-      execSync(`open -n "${loginUiPath}"`);
+      const { spawn } = require('child_process');
+      const proc = spawn('open', [loginUiPath], { detached: true, stdio: 'ignore' });
+      proc.unref();
     } catch {
       console.log(`   📄  Login UI saved to: ${loginUiPath}`);
     }
