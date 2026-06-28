@@ -33,8 +33,10 @@ test.describe('AQA-1 – Verify only US Users are able to log in to the applicat
 
   test('Login is successful if the export_status of the user attempting to login is US_PERSON', async ({ request }) => {
     const users = await getUsers(request);
-    const usUser = users.find(u => u.export_status === "US_PERSON");
-    const response = await login(request, usUser.username, usUser.password);
+    const usPerson = users.find(user => user.export_status === "US_PERSON");
+    
+    const response = await login(request, usPerson.username, usPerson.password);
+    
     expect(response.success).toBe(true);
     expect(response.message).toContain("Login successful");
   });
@@ -43,11 +45,9 @@ test.describe('AQA-1 – Verify only US Users are able to log in to the applicat
     const users = await getUsers(request);
     const nonUsPersonUser = users.find(user => user.export_status === "NON_US_PERSON");
     
-    if (!nonUsPersonUser) {
-      throw new Error("No NON_US_PERSON user found in test data");
-    }
+    expect(nonUsPersonUser).toBeDefined();
     
-    const response = await login(request, nonUsPersonUser.username, nonUsPersonUser.password);
+    const response = await login(request, nonUsPersonUser!.username, nonUsPersonUser!.password);
     
     expect(response.success).toBe(false);
     expect(response.message).toContain("Only US Persons");
