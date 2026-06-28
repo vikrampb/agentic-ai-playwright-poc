@@ -135,15 +135,46 @@ async function main(): Promise<void> {
   // ── Step 4: Per-story — fetch + generate + commit ──────────
   console.log('\n🧠  Step 4 – Generating tests for each story…');
 
-  const issueMap: Record<string, Awaited<ReturnType<typeof fetchIssue>>> = {};
+  const issueMap: Record<string, Awaited<ReturnType<typeof fetchIssue>> | null> = {};
+  const skippedKeys: string[] = [];
 
   for (const story of stories) {
     const { issueKey, plainEnglishTestCases } = story;
     console.log(`\n   ▶  ${issueKey}`);
 
-    const issue = await fetchIssue(issueKey);
-    issueMap[issueKey] = issue;
-    console.log(`      ✓  "${issue.summary}" (${issue.status})`);
+    // ── Try to fetch the Jira issue — skip gracefully if invalid ──────────
+    let issue: Awaited<ReturnType<typeof fetchIssue>> | null = null;
+    try {
+      issue = await fetchIssue(issueKey);
+      issueMap[issueKey] = issue;
+      console.log(`      ✓  "${issue.summary}" (${issue.status})`);
+    } catch (err) {
+      const msg = (err as Error).message ?? '';
+      const isNotFound = msg.includes('404') || msg.toLowerCase().includes('does not exist');
+      if (isNotFound) {
+        console.log(`      ⚠️   Jira key "${issueKey}" not found or inaccessible — generating skipped test`);
+        skippedKeys.push(issueKey);
+        issueMap[issueKey] = null;
+
+        // Commit a skipped placeholder test so CI still passes
+        const skippedTest = [
+          `import { test } from '@playwright/test';`,
+          ``,
+          `// ⚠️  Jira issue "${issueKey}" was not found or you do not have permission to view it.`,
+          `// This test has been automatically skipped by the Agentic AI Pipeline.`,
+          ``,
+          `test.describe('${issueKey} – SKIPPED (invalid Jira key)', () => {`,
+          `  test.skip(true, 'Jira issue "${issueKey}" does not exist or is inaccessible. Please check the key and try again.');`,
+          `  test('placeholder', async () => {});`,
+          `});`,
+        ].join('\n');
+
+        await commitFile(`tests/generated/${issueKey}.spec.ts`, skippedTest, commitMsg);
+        continue;
+      }
+      // Re-throw unexpected errors
+      throw err;
+    }
 
     if (plainEnglishTestCases.length) {
       console.log(`      📝  ${plainEnglishTestCases.length} plain-English test case(s) to implement:`);
@@ -157,6 +188,11 @@ async function main(): Promise<void> {
     console.log(`      ✓  ${testCode.split('\n').length} lines generated`);
 
     await commitFile(`tests/generated/${issueKey}.spec.ts`, testCode, commitMsg);
+  }
+
+  if (skippedKeys.length > 0) {
+    console.log(`\n   ⚠️   Skipped ${skippedKeys.length} invalid key(s): ${skippedKeys.join(', ')}`);
+    console.log('      These will appear as skipped tests in the Playwright report.');
   }
 
   // ── Step 5: Clear stale results.json then trigger CI ────────
@@ -239,6 +275,12 @@ async function main(): Promise<void> {
     const { issueKey } = story;
     const issue = issueMap[issueKey];
 
+    // Skip posting to invalid keys — they don't exist in Jira
+    if (issue === null) {
+      console.log(`   ⏭️   Skipping Jira comment for invalid key "${issueKey}"`);
+      continue;
+    }
+
     if (reportResult?.summary) {
       // Rich comment with ADF test-results table
       const adfBody = buildJiraAdfBody(reportResult.summary, issueKey, allKeys);
@@ -266,7 +308,7 @@ async function main(): Promise<void> {
 
   console.log('\n' + '═'.repeat(56));
   console.log(`✅  Pipeline complete! Processed ${stories.length} story/stories.\n`);
-  if (reportResult?.summary) {
+  if (summary) {
     console.log(`📊  Dashboard: local-reports/report-${run.runId}.html\n`);
   }
 }
