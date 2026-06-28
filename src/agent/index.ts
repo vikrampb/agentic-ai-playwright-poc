@@ -159,8 +159,35 @@ async function main(): Promise<void> {
     await commitFile(`tests/generated/${issueKey}.spec.ts`, testCode, commitMsg);
   }
 
-  // ── Step 5: Trigger CI ─────────────────────────────────────
-  console.log('\n🚀  Step 5 – Triggering GitHub Actions workflow…');
+  // ── Step 5: Clear stale results.json then trigger CI ────────
+  console.log('\n🧹  Step 5a – Clearing stale results.json from agent branch…');
+  try {
+    const { Octokit } = require('octokit');
+    const octokit = new (require('octokit').Octokit)({ auth: process.env.GITHUB_TOKEN });
+    const existing = await octokit.rest.repos.getContent({
+      owner: process.env.GITHUB_OWNER!,
+      repo:  process.env.GITHUB_REPO!,
+      path:  'playwright-report/results.json',
+      ref:   process.env.GITHUB_BRANCH ?? 'agent/auto-tests',
+    }).catch(() => null);
+    if (existing) {
+      await octokit.rest.repos.deleteFile({
+        owner:   process.env.GITHUB_OWNER!,
+        repo:    process.env.GITHUB_REPO!,
+        path:    'playwright-report/results.json',
+        message: 'chore: clear stale results before new CI run [skip ci]',
+        sha:     (existing.data as any).sha,
+        branch:  process.env.GITHUB_BRANCH ?? 'agent/auto-tests',
+      });
+      console.log('   ✓  Stale results.json deleted');
+    } else {
+      console.log('   ✓  No stale results.json found');
+    }
+  } catch (e) {
+    console.log('   ⚠️   Could not clear results.json:', (e as Error).message);
+  }
+
+  console.log('\n🚀  Step 5b – Triggering GitHub Actions workflow…');
   await triggerWorkflow('ci.yml', 'main');
 
   // ── Step 6: Wait for result ────────────────────────────────
@@ -238,7 +265,7 @@ async function main(): Promise<void> {
 
   console.log('\n' + '═'.repeat(56));
   console.log(`✅  Pipeline complete! Processed ${stories.length} story/stories.\n`);
-  if (reportResult?.summary) {
+  if (summary) {
     console.log(`📊  Dashboard: local-reports/report-${run.runId}.html\n`);
   }
 }
