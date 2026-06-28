@@ -96,9 +96,14 @@ Available helpers already defined above:
   login(request, username, password) → Promise<LoginResponse>
     LoginResponse: { success: boolean, message: string, exportStatus?: string }
 
-Server messages:
-  On success  : message contains "Login successful"
-  On blocked  : message contains "Only US Persons"
+EXACT server messages — use these strings character-for-character:
+  US_PERSON success : "Login successful. Welcome!"
+  NON_US_PERSON blocked: "Only US Persons are allowed to watch this demo."
+
+For blocked users always assert:
+  expect(response.message).toContain("Only US Persons are allowed to watch this demo.");
+For successful logins always assert:
+  expect(response.message).toContain("Login successful");
 
 Test case to implement:
   Description : ${testCase.description}
