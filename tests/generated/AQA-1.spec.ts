@@ -31,7 +31,7 @@ async function login(
 
 test.describe('AQA-1 – Verify only US Users are able to log in to the application', () => {
 
-  test('Validate only users with an export_status of US_PERSON are allowed to log in.', async ({ request }) => {
+  test('Validate only users with an export_status of US_PERSON are allowed to watch the demo.', async ({ request }) => {
     const users = await getUsers(request);
     
     for (const user of users) {
