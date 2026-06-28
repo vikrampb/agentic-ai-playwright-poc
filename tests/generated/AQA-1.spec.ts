@@ -31,14 +31,19 @@ async function login(
 
 test.describe('AQA-1 – Verify only US Users are able to log in to the application', () => {
 
-  test('Login is successful if the export_status of the user attempting to login is US_PERSON', async ({ request }) => {
+  test('Validate that only users with an export_status value of US_PERSON are allowed to login.', async ({ request }) => {
     const users = await getUsers(request);
-    const usPersons = users.filter(user => user.export_status === "US_PERSON");
     
-    for (const user of usPersons) {
+    for (const user of users) {
       const response = await login(request, user.username, user.password);
-      expect(response.success).toBe(true);
-      expect(response.message).toContain("Login successful");
+    
+      if (user.export_status === "US_PERSON") {
+        expect(response.success).toBe(true);
+        expect(response.message).toContain("Login successful");
+      } else {
+        expect(response.success).toBe(false);
+        expect(response.message).toContain("Only US Persons are allowed to watch this demo.");
+      }
     }
   });
 });
