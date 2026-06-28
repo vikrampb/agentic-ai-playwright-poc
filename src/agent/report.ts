@@ -342,11 +342,21 @@ function saveHtml(html: string, runId: number, prefix: string): string {
   return outPath;
 }
 
-/** Open two HTML files in a NEW browser session with each on its own tab. */
+/** Open two HTML files in a NEW browser session with each on its own tab.
+ *  Uses spawn/detach so the browser process never blocks the agent. */
 export function openInNewBrowserSession(file1: string, file2: string): void {
-  const { execSync } = require('child_process');
+  const { spawn, execFileSync } = require('child_process');
 
-  // Try Google Chrome first (supports --new-window with multiple URLs)
+  const spawnDetached = (cmd: string, args: string[]) => {
+    const proc = spawn(cmd, args, {
+      detached: true,
+      stdio:    'ignore',
+      shell:    false,
+    });
+    proc.unref(); // let the agent process exit independently of the browser
+  };
+
+  // Try Google Chrome / Edge / Chromium first
   const chromePaths = [
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
@@ -357,39 +367,18 @@ export function openInNewBrowserSession(file1: string, file2: string): void {
   for (const chromePath of chromePaths) {
     if (fs.existsSync(chromePath)) {
       try {
-        // --new-window opens a brand-new window; listing two files opens them as tabs
-        execSync(
-          `"${chromePath}" --new-window "file://${file1}" "file://${file2}" &`,
-          { shell: true }
-        );
+        spawnDetached(chromePath, ['--new-window', `file://${file1}`, `file://${file2}`]);
         console.log(`   🌐  Opened new browser session with both tabs`);
         return;
       } catch { continue; }
     }
   }
 
-  // Fallback: Safari with a new window via AppleScript
+  // Fallback: open each file with macOS open (detached via & in shell)
   try {
-    const script = `
-      tell application "Safari"
-        activate
-        make new document with properties {URL:"file://${file1}"}
-        delay 0.5
-        tell window 1
-          set current tab to (make new tab with properties {URL:"file://${file2}"})
-        end tell
-      end tell
-    `.trim();
-    execSync(`osascript -e '${script.replace(/'/g, "\'")}'`);
-    console.log(`   🌐  Opened new Safari session with both tabs`);
-    return;
-  } catch { /* fall through */ }
-
-  // Last resort: open each file separately
-  try {
-    execSync(`open -n "${file1}"`);
-    execSync(`sleep 0.5 && open "${file2}"`);
-    console.log(`   🌐  Opened both files in browser`);
+    spawnDetached('open', [file1]);
+    setTimeout(() => spawnDetached('open', [file2]), 800);
+    console.log(`   🌐  Opened both files in default browser`);
   } catch {
     console.log(`   📄  Reports saved to local-reports/`);
   }
