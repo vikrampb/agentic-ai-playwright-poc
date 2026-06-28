@@ -195,32 +195,53 @@ async function main(): Promise<void> {
     console.log('      These will appear as skipped tests in the Playwright report.');
   }
 
-  // ── Step 5: Clear stale results.json then trigger CI ────────
-  console.log('\n🧹  Step 5a – Clearing stale results.json from agent branch…');
+  // ── Step 5: Clear ALL stale files from agent branch then trigger CI ────────
+  console.log('\n🧹  Step 5a – Clearing stale files from agent branch…');
   try {
     const { Octokit } = require('octokit');
     const octokit = new (require('octokit').Octokit)({ auth: process.env.GITHUB_TOKEN });
-    const existing = await octokit.rest.repos.getContent({
-      owner: process.env.GITHUB_OWNER!,
-      repo:  process.env.GITHUB_REPO!,
-      path:  'playwright-report/results.json',
-      ref:   process.env.GITHUB_BRANCH ?? 'agent/auto-tests',
+    const agentBranch = process.env.GITHUB_BRANCH ?? 'agent/auto-tests';
+    const owner = process.env.GITHUB_OWNER!;
+    const repo  = process.env.GITHUB_REPO!;
+
+    // Delete stale results.json
+    const resultsFile = await octokit.rest.repos.getContent({
+      owner, repo, path: 'playwright-report/results.json', ref: agentBranch,
     }).catch(() => null);
-    if (existing) {
+    if (resultsFile) {
       await octokit.rest.repos.deleteFile({
-        owner:   process.env.GITHUB_OWNER!,
-        repo:    process.env.GITHUB_REPO!,
+        owner, repo,
         path:    'playwright-report/results.json',
-        message: 'chore: clear stale results before new CI run [skip ci]',
-        sha:     (existing.data as any).sha,
-        branch:  process.env.GITHUB_BRANCH ?? 'agent/auto-tests',
+        message: 'chore: clear stale results [skip ci]',
+        sha:     (resultsFile.data as any).sha,
+        branch:  agentBranch,
       });
       console.log('   ✓  Stale results.json deleted');
-    } else {
-      console.log('   ✓  No stale results.json found');
     }
+
+    // Delete ALL stale test files from tests/generated/
+    // so only this run's tests are present when CI executes
+    const testsDir = await octokit.rest.repos.getContent({
+      owner, repo, path: 'tests/generated', ref: agentBranch,
+    }).catch(() => null);
+    if (testsDir && Array.isArray(testsDir.data)) {
+      const currentKeys = new Set(stories.map(s => `${s.issueKey}.spec.ts`));
+      for (const file of testsDir.data as Array<{ name: string; sha: string; path: string }>) {
+        if (file.name.endsWith('.spec.ts') && !currentKeys.has(file.name)) {
+          await octokit.rest.repos.deleteFile({
+            owner, repo,
+            path:    file.path,
+            message: `chore: remove stale test ${file.name} [skip ci]`,
+            sha:     file.sha,
+            branch:  agentBranch,
+          });
+          console.log(`   ✓  Removed stale test: ${file.name}`);
+        }
+      }
+    }
+    console.log('   ✓  Agent branch cleaned');
   } catch (e) {
-    console.log('   ⚠️   Could not clear results.json:', (e as Error).message);
+    console.log('   ⚠️   Could not clean agent branch:', (e as Error).message);
   }
 
   console.log('\n🚀  Step 5b – Triggering GitHub Actions workflow…');
@@ -308,7 +329,7 @@ async function main(): Promise<void> {
 
   console.log('\n' + '═'.repeat(56));
   console.log(`✅  Pipeline complete! Processed ${stories.length} story/stories.\n`);
-  if (reportResult?.summary) {
+  if (summary) {
     console.log(`📊  Dashboard: local-reports/report-${run.runId}.html\n`);
   }
 }
