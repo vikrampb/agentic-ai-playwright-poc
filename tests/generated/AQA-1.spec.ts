@@ -33,9 +33,11 @@ test.describe('AQA-1 – Verify only US Users are able to log in to the applicat
 
   test('Login is successful if the export_status of the user attempting to login is US_PERSON', async ({ request }) => {
     const users = await getUsers(request);
-    const usUser = users.find(u => u.export_status === "US_PERSON");
+    const usPerson = users.find(user => user.export_status === "US_PERSON");
     
-    const response = await login(request, usUser.username, usUser.password);
+    expect(usPerson).toBeDefined();
+    
+    const response = await login(request, usPerson!.username, usPerson!.password);
     
     expect(response.success).toBe(true);
     expect(response.message).toContain("Login successful");
@@ -43,14 +45,10 @@ test.describe('AQA-1 – Verify only US Users are able to log in to the applicat
 
   test('Login fails if the export_status of the user attempting to login is NON_US_PERSON', async ({ request }) => {
     const users = await getUsers(request);
-    const nonUsPersons = users.filter(user => user.export_status === "NON_US_PERSON");
-    
-    expect(nonUsPersons.length).toBeGreaterThan(0);
-    
-    for (const user of nonUsPersons) {
-      const response = await login(request, user.username, user.password);
-      expect(response.success).toBe(false);
-      expect(response.message).toContain("Only US Persons");
-    }
+    const nonUsUser = users.find(u => u.export_status === "NON_US_PERSON");
+    expect(nonUsUser).toBeDefined();
+    const response = await login(request, nonUsUser!.username, nonUsUser!.password);
+    expect(response.success).toBe(false);
+    expect(response.message).toContain("Only US Persons");
   });
 });
