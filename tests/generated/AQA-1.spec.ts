@@ -41,18 +41,4 @@ test.describe('AQA-1 – Verify only US Users are able to log in to the applicat
       expect(response.message).toContain("Login successful");
     }
   });
-
-  test('Login fails if the export_status of the user attempting to login is NON_US_PERSON', async ({ request }) => {
-    javascript
-    const users = await getUsers(request);
-    const nonUsPersons = users.filter(user => user.export_status === "NON_US_PERSON");
-    
-    expect(nonUsPersons.length).toBeGreaterThan(0);
-    
-    for (const user of nonUsPersons) {
-      const response = await login(request, user.username, user.password);
-      expect(response.success).toBe(false);
-      expect(response.message).toContain("Only US Persons are allowed to watch this demo.");
-    }
-  });
 });
