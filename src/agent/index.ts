@@ -329,7 +329,7 @@ async function main(): Promise<void> {
 
   console.log('\n' + '═'.repeat(56));
   console.log(`✅  Pipeline complete! Processed ${stories.length} story/stories.\n`);
-  if (summary) {
+  if (reportResult?.summary) {
     console.log(`📊  Dashboard: local-reports/report-${run.runId}.html\n`);
   }
 }
