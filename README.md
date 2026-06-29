@@ -1,97 +1,119 @@
 # Agentic AI Playwright POC
 
-An end-to-end **Agentic AI framework** that runs interactively during a live demo to:
-
-1. **Prompt the presenter** for one or more Jira issue keys and plain-English test cases
-2. **Read each Jira story** via the Atlassian REST API
-3. **Generate Playwright TypeScript tests** using Claude (claude-sonnet-4-6) with a fixed scaffold template — one test block per plain-English case, nothing more
-4. **Commit & push** the generated tests to the `agent/auto-tests` branch on GitHub
-5. **Trigger GitHub Actions** CI/CD which runs the tests against a live mock server backed by SQLite
-6. **Poll** until the workflow run completes
-7. **Download** the Playwright `results.json` from the agent branch
-8. **Open two browser tabs** in a new session: an interactive HTML test results dashboard and an animated login demo UI
-9. **Post results back to every Jira ticket** as a rich ADF comment with a test results table, and transition each story to Done on success
+An end-to-end **Agentic AI framework** for live demo presentations. The agent reads Jira stories, generates Playwright TypeScript tests via Claude, runs them in GitHub Actions CI/CD, and presents the results in two browser windows — all from a single terminal command.
 
 ---
 
-## How the demo works
+## Quick demo command
 
-Run `npm run agent` and the terminal becomes interactive:
+```bash
+cd /Users/vikrampb/Projects/agentic-ai-playwright-poc
+npm run agent
+```
+
+---
+
+## What the agent does in 8 steps
+
+| Step | What happens |
+|------|-------------|
+| **0** | Interactive prompt — enter Jira keys + plain-English test cases |
+| **1** | Ensure GitHub repo exists |
+| **2** | Preview SQLite users (tests load them live at runtime) |
+| **3** | Prepare `agent/auto-tests` branch — delete stale test files and `results.json` |
+| **4** | For each Jira key: fetch story → Claude generates test scaffold → commit |
+| **5a** | Clear stale files from agent branch |
+| **5b** | Trigger `workflow_dispatch` on GitHub Actions (`ci.yml` on `main`) |
+| **5c** | Poll every 15s until workflow completes |
+| **6** | Fetch fresh `results.json` from agent branch → build HTML dashboard |
+| **7** | Open test dashboard + login UI in a new browser session (two tabs) |
+| **8** | Post ADF comment with test results table to every valid Jira ticket → transition to Done |
+
+---
+
+## Interactive demo session example
 
 ```
 🎤  INTERACTIVE DEMO MODE
-──────────────────────────────────────────────────────
+──────────────────────────────────────────────────────────
   Story 1 – Jira issue key (or ENTER to finish): AQA-1
 
   📝  Adding plain-English test cases for AQA-1
-    Test case 1 description: Login should succeed for a US Person
+    Test case 1 description: Iterate over all users and verify login pass/fail based on export_status
     Endpoint [default: GET /api/login]:
-    Expected outcome: Returns success true
+    Expected outcome: US_PERSON users pass, NON_US_PERSON users fail with correct message
 
-    Test case 2 description: Login should be denied for a Non-US Person
-    Endpoint [default: GET /api/login]:
-    Expected outcome: Returns success false with message "Only US Persons are allowed"
-
-  ✅  Story AQA-1 added with 2 custom test case(s)
+  ✅  Story AQA-1 added with 1 custom test case(s)
 
   Story 2 – Jira issue key (or ENTER to finish): AQA-2
   ...
+
   Story 3 – Jira issue key (or ENTER to finish):   ← ENTER to start pipeline
 ```
 
-The agent then runs the full pipeline unattended and opens both visual reports in your browser when done.
+### Invalid Jira key handling
+
+If you enter a key that doesn't exist (e.g. `AQA-999`):
+- The agent catches the 404 gracefully
+- A skipped placeholder test is committed for that key
+- CI still passes — the skipped test appears with ⏭ in the report
+- No Jira comment is posted for the invalid key
+- At the end of the run the terminal prints which keys were skipped and why
 
 ---
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                       Your MacBook                           │
-│                                                              │
-│  npm run agent                                               │
-│       │                                                      │
-│       ▼                                                      │
-│  ┌─────────────────────────────────────────────────────┐     │
-│  │           src/agent/index.ts  (Orchestrator)        │     │
-│  └──┬──────────────┬─────────────────┬─────────────────┘     │
-│     │              │                 │                        │
-│  ┌──▼──────┐  ┌────▼──────┐  ┌──────▼──────────────────┐    │
-│  │  Jira   │  │  SQLite   │  │  Claude API             │    │
-│  │  Client │  │  (users   │  │  (test scaffold +       │    │
-│  │  REST   │  │   + /api/ │  │   assertion bodies)     │    │
-│  │  API v3 │  │   users)  │  │  claude-sonnet-4-6      │    │
-│  └──┬──────┘  └───────────┘  └──────┬──────────────────┘    │
-│     │                               │                        │
-│  ┌──▼───────────────────────────────▼──────────────────┐     │
-│  │              GitHub Client (Octokit)                │     │
-│  │  • ensureBranch  • commitFile  • triggerWorkflow    │     │
-│  │  • waitForLatestRun  • getContent (results.json)    │     │
-│  └──────────────────────────┬───────────────────────────┘    │
-│                             │                                 │
-│  ┌──────────────────────────▼───────────────────────────┐    │
-│  │   Local Reports (auto-opened in new browser session) │    │
-│  │   • local-reports/report-<id>.html  (test dashboard) │    │
-│  │   • local-reports/login-ui-<id>.html (login demo UI) │    │
-│  └──────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────┘
-                             │
-          ┌──────────────────▼──────────────────────────┐
-          │                 GitHub                      │
-          │  main branch    — ci.yml, src/, scripts/    │
-          │  agent/auto-tests — tests/generated/*.spec  │
-          │                    playwright.config.ts     │
-          │                    playwright-report/       │
-          │                                             │
-          │  CI job:                                    │
-          │  1. Checkout main (deps + source)           │
-          │  2. Overlay tests from agent/auto-tests     │
-          │  3. npm ci + Playwright install             │
-          │  4. Seed SQLite + start mock server         │
-          │  5. npx playwright test                     │
-          │  6. Commit results.json → agent branch      │
-          │  7. Post ADF comment + transition → Jira    │
-          └─────────────────────────────────────────────┘
+Your MacBook
+│
+└─ npm run agent
+       │
+       ├─ Interactive prompt (src/agent/prompt.ts)
+       │     Collects Jira keys + plain-English test cases
+       │
+       ├─ Jira Client (src/jira/client.ts)
+       │     Fetches each story via Atlassian REST API v3
+       │     Posts ADF comment + transitions story to Done
+       │
+       ├─ Test Generator (src/agent/testGenerator.ts)
+       │     Fixed scaffold template — agent controls structure
+       │     Claude writes only the assertion body per test case
+       │     One plain-English case = one test() block, nothing more
+       │
+       ├─ GitHub Client (src/github/client.ts)
+       │     ensureBranch / commitFile / triggerWorkflow
+       │     waitForLatestRun / getContent (results.json)
+       │
+       ├─ Report (src/agent/report.ts)
+       │     Downloads results.json from agent branch
+       │     Builds dark-theme HTML test dashboard
+       │     Opens both reports in a new browser session (spawn+detach)
+       │
+       └─ Login UI (src/agent/loginUi.ts)
+             Two-column layout: US Persons (pass) | Non-US Persons (fail)
+             All 10 DB users displayed with avatar, username, result pill
+
+GitHub
+├─ main branch
+│    ci.yml, package.json, src/, scripts/, tsconfig.json
+│    Written by: developer
+│
+└─ agent/auto-tests branch
+     tests/generated/<ISSUE-KEY>.spec.ts  (one per story)
+     playwright.config.ts
+     playwright-report/results.json       (written by CI after each run)
+     Written by: agent (overwritten every run)
+
+GitHub Actions (ci.yml on main)
+1. Checkout main (has package.json, src/, scripts/)
+2. Overlay tests/ from agent/auto-tests branch
+3. npm install + Playwright browsers
+4. Seed SQLite DB (10 users)
+5. Start mock server (GET /api/users, GET /api/login, GET /health)
+6. npx playwright test
+7. Upload playwright-report/ artifact
+8. Commit results.json back to agent/auto-tests branch
 ```
 
 ---
@@ -100,152 +122,147 @@ The agent then runs the full pipeline unattended and opens both visual reports i
 
 | | `main` | `agent/auto-tests` |
 |---|---|---|
-| **Contents** | `ci.yml`, `package.json`, `src/`, `scripts/` | `tests/generated/*.spec.ts`, `playwright.config.ts`, `playwright-report/results.json` |
-| **Written by** | Developer (manual commits) | Agent (every pipeline run) |
-| **CI reads** | Workflow definition | Generated test files (via git overlay) |
-| **Purpose** | Stable source of truth | Ephemeral — overwritten each run |
+| **Contents** | Source code, CI workflow, package.json | Generated tests, playwright config, results.json |
+| **Written by** | Developer (manual) | Agent (every run) |
+| **Purpose** | Stable source of truth | Ephemeral — fully replaced each run |
 
-`workflow_dispatch` requires `ci.yml` to live on `main`. Generated tests are committed to `agent/auto-tests` so they don't pollute the stable codebase. The CI job overlays both at runtime.
+GitHub's `workflow_dispatch` requires `ci.yml` to live on the default branch (`main`). Generated tests live on `agent/auto-tests` so they don't pollute the stable codebase. The CI job overlays both at runtime using `git checkout origin/agent/auto-tests -- tests/`.
 
 ---
 
 ## Prerequisites
 
-| Tool | Version | Install |
-|------|---------|---------|
+| Tool | Version | How to install |
+|------|---------|----------------|
 | macOS | 12+ | — |
-| Node.js | ≥ 20 | via nvm |
-| npm | ≥ 10 | bundled with Node |
-| Git | any | Xcode CLT / Homebrew |
-| GitHub CLI | any | `brew install gh` |
-| SQLite | 3.x | pre-installed on macOS |
-| Google Chrome | any | recommended for new-session browser opens |
+| Node.js | ≥ 20 | `nvm install 20` |
+| Git | any | Xcode CLT |
+| GitHub CLI | any | `brew install gh && gh auth login` |
+| Google Chrome | any | For new-session browser opens |
 
 ---
 
-## Quick Start
-
-### 1. Clone & install
+## Setup (one-time)
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/agentic-ai-playwright-poc.git
+# 1. Clone and install
+git clone https://github.com/vikrampb/agentic-ai-playwright-poc.git
 cd agentic-ai-playwright-poc
 bash setup-mac.sh
-```
 
-### 2. Configure secrets
-
-```bash
+# 2. Fill in secrets
 cp .env.example .env
-# Edit .env with your real keys
-```
+# Edit .env — see table below
 
-| Variable | Where to get it |
-|----------|----------------|
-| `ANTHROPIC_API_KEY` | https://console.anthropic.com/keys |
-| `JIRA_HOST` | e.g. `mycompany.atlassian.net` — no `https://`, no trailing slash |
-| `JIRA_EMAIL` | Your Atlassian login email |
-| `JIRA_API_TOKEN` | https://id.atlassian.com/manage-profile/security/api-tokens |
-| `JIRA_ISSUE_KEY` | Default issue key fallback e.g. `AQA-1` (you can override at runtime) |
-| `GITHUB_TOKEN` | Fine-grained PAT — permissions: Contents, Actions, Workflows, Secrets (all Read & write) |
-| `GITHUB_OWNER` | Your GitHub username |
-| `GITHUB_REPO` | `agentic-ai-playwright-poc` |
-| `GITHUB_BRANCH` | `agent/auto-tests` |
-| `DB_PATH` | `./data/users.db` (default, no change needed) |
-
-### 3. Create the GitHub repo
-
-Create `agentic-ai-playwright-poc` on github.com first, then:
-
-```bash
+# 3. Create GitHub repo + set Actions secrets
 bash scripts/init-github-repo.sh
-```
 
-This authenticates the GitHub CLI, pushes the initial scaffold to `main`, and sets all four Jira credentials as GitHub Actions secrets.
-
-### 4. Seed the database
-
-```bash
+# 4. Seed the SQLite database (10 users)
 npm run db:init
-```
 
-Creates `data/users.db` with two records:
-
-| id | name | export_status | username | password |
-|----|------|--------------|----------|----------|
-| 1 | Captain America | US_PERSON | captain.america | Avengers2025! |
-| 2 | Green Goblin | NON_US_PERSON | green.goblin | OsCorp2025! |
-
-### 5. Push `ci.yml` to main
-
-```bash
+# 5. Push ci.yml to main
 git add .github/workflows/ci.yml
 git commit -m "chore: add CI workflow"
 git push origin main
 ```
 
-### 6. Run the agent
+### Required `.env` values
 
-```bash
-npm run agent
-```
-
----
-
-## What happens during a run
-
-```
-Step 0  Interactive prompt — collect Jira keys + plain-English test cases
-Step 1  Ensure GitHub repo exists
-Step 2  Preview SQLite users (shown for context — tests load them at runtime)
-Step 3  Prepare agent/auto-tests branch + commit shared files
-Step 4  For each story: fetch Jira → Claude generates test scaffold → commit
-Step 5  Trigger GitHub Actions workflow_dispatch on main
-Step 6  Poll every 15s until workflow completes
-Step 7  Fetch results.json from agent branch → build HTML dashboard → save
-Step 7b Save animated login demo UI → open both in a new browser session
-Step 8  Post ADF comment (with test results table) to every Jira story
-        Transition each story → Done if tests passed
-```
+| Variable | Description |
+|----------|-------------|
+| `ANTHROPIC_API_KEY` | From console.anthropic.com/keys |
+| `JIRA_HOST` | e.g. `mycompany.atlassian.net` — no `https://` |
+| `JIRA_EMAIL` | Your Atlassian login email |
+| `JIRA_API_TOKEN` | From id.atlassian.com → Security → API tokens |
+| `JIRA_ISSUE_KEY` | Fallback key e.g. `AQA-1` |
+| `GITHUB_TOKEN` | Fine-grained PAT — Contents, Actions, Workflows, Secrets (Read & write) |
+| `GITHUB_OWNER` | Your GitHub username |
+| `GITHUB_REPO` | `agentic-ai-playwright-poc` |
+| `GITHUB_BRANCH` | `agent/auto-tests` |
+| `DB_PATH` | `./data/users.db` (default) |
 
 ---
 
-## Test generation design
+## Database — 10 users
 
-Tests are **template-driven**, not free-form. The agent builds the file structure; Claude only writes the assertion body for each test case.
+| Name | export_status | username |
+|------|--------------|----------|
+| Captain America | US_PERSON | captain.america |
+| Iron Man | US_PERSON | iron.man |
+| Spider-Man | US_PERSON | spider.man |
+| Black Widow | US_PERSON | black.widow |
+| Hawkeye | US_PERSON | hawkeye |
+| War Machine | US_PERSON | war.machine |
+| Green Goblin | NON_US_PERSON | green.goblin |
+| Doctor Doom | NON_US_PERSON | doctor.doom |
+| Red Skull | NON_US_PERSON | red.skull |
+| Loki | NON_US_PERSON | loki |
 
-- The file header (`import`, `interface`, helper functions) is always identical
-- One plain-English test case → exactly one `test()` block — no extras
-- Tests call `GET /api/users` at runtime to discover all DB users dynamically
-- Passwords come from the `/api/users` response — nothing is hardcoded
-- If no plain-English cases are entered, two default tests (US_PERSON pass / NON_US_PERSON fail) are used
+Tests call `GET /api/users` at runtime — adding users to the DB requires zero test code changes.
 
 ---
 
 ## Mock server endpoints
 
-The Express server (`scripts/mockServer.ts`) runs in CI and locally:
-
 | Endpoint | Description |
 |----------|-------------|
-| `GET /api/users` | All users from SQLite including password — used by tests at runtime |
-| `GET /api/login?username=u&password=p` | Export-control login check |
-| `GET /health` | Liveness probe used by CI startup check |
+| `GET /api/users` | All users including password (POC only) |
+| `GET /api/login?username=u&password=p` | Export-control login |
+| `GET /health` | CI liveness probe |
 
-Server messages:
-- **US_PERSON success:** `"Login successful. Welcome!"`
-- **NON_US_PERSON blocked:** `"Only US Persons are allowed to watch this demo."`
+**Server messages:**
+- US_PERSON: `"Login successful. Welcome!"`
+- NON_US_PERSON: `"Only US Persons are allowed to watch this demo."`
+
+---
+
+## Test generation — how it works
+
+The agent uses a **fixed scaffold template** so Claude never controls the test structure:
+
+1. The file header (`import`, `interface`, helper functions `getUsers`, `login`) is always identical
+2. For each plain-English test case you enter → Claude writes only the assertion body statements
+3. The agent wraps each body in a `test('your description', ...)` block
+4. One test case entered = exactly one `test()` block in the file — no extras
+5. If no test cases are entered → two default tests are used (US_PERSON pass / NON_US_PERSON fail)
 
 ---
 
 ## Local reports
 
-After each run, two HTML files are saved to `local-reports/` and opened in a new Chrome/Safari session:
+After each run two HTML files open in a new Chrome session:
 
 | File | Contents |
 |------|----------|
-| `report-<runId>.html` | Dark-theme test dashboard — pass/fail per test, durations, pass rate bar, link to GitHub Actions run |
-| `login-ui-<runId>.html` | Animated login demo UI — Captain America (access granted) and Green Goblin (access denied) with exact server messages |
+| `local-reports/report-<id>.html` | Dark-theme test dashboard — pass/fail per test, durations, pass rate, GitHub Actions link |
+| `local-reports/login-ui-<id>.html` | Two-column login demo — all US Persons (green ✓) and Non-US Persons (red ✕) |
+
+Both files are saved permanently in `local-reports/` (git-ignored) and can be reopened any time.
+
+---
+
+## Jira comments
+
+Each valid story receives a comment with:
+- Story key
+- CI Result (PASS / FAIL)
+- Pass Rate (e.g. 100% — 2 of 2 tests passed)
+- Duration
+- Test details table (Suite | Test | Status | Duration)
+
+On a passing run the story is also transitioned to **Done**.
+
+---
+
+## Re-running the demo
+
+`npm run agent` can be run 4–5 times against the same Jira ticket. Each run:
+- Deletes stale test files and `results.json` from the agent branch
+- Generates fresh tests from whatever you type at the prompt
+- Adds a new timestamped comment to each Jira ticket
+- Opens fresh browser windows with the latest results
+
+The Jira ticket accumulates a comment history showing each pipeline run — good for demonstrating the agentic loop.
 
 ---
 
@@ -255,82 +272,37 @@ After each run, two HTML files are saved to `local-reports/` and opened in a new
 agentic-ai-playwright-poc/
 ├── .env.example
 ├── .github/
-│   └── workflows/
-│       └── ci.yml                   # GitHub Actions — runs on main, overlays tests from agent branch
-├── data/
-│   └── users.db                     # Auto-created by npm run db:init
-├── local-reports/                   # Auto-generated after each run (git-ignored)
-│   ├── report-<id>.html             # Test results dashboard
-│   └── login-ui-<id>.html          # Animated login demo UI
+│   └── workflows/ci.yml          # GitHub Actions — main branch only
+├── data/users.db                 # SQLite — auto-created by npm run db:init
+├── local-reports/                # Auto-generated HTML reports (git-ignored)
 ├── scripts/
-│   ├── init-github-repo.sh          # One-time GitHub setup
-│   └── mockServer.ts                # Express login + users API (dev + CI)
+│   ├── init-github-repo.sh       # One-time GitHub + secrets setup
+│   └── mockServer.ts             # Express API (/api/users, /api/login, /health)
 ├── src/
 │   ├── agent/
-│   │   ├── index.ts                 # 🤖 Main orchestrator (8-step pipeline)
-│   │   ├── prompt.ts                # Interactive terminal prompt
-│   │   ├── testGenerator.ts         # Template-based test file builder
-│   │   ├── report.ts                # results.json fetcher + HTML dashboard
-│   │   └── loginUi.ts              # Animated login demo UI generator
+│   │   ├── index.ts              # 🤖 Main orchestrator (8-step pipeline)
+│   │   ├── prompt.ts             # Interactive terminal prompt
+│   │   ├── testGenerator.ts      # Template-based test builder (Claude writes bodies only)
+│   │   ├── report.ts             # results.json fetcher + HTML dashboard generator
+│   │   └── loginUi.ts            # Two-column animated login demo UI
 │   ├── db/
-│   │   ├── client.ts                # SQLite query helpers
-│   │   └── seed.ts                  # Database seeder
+│   │   ├── client.ts             # SQLite query helpers
+│   │   └── seed.ts               # 10-user database seeder
 │   ├── github/
-│   │   └── client.ts                # Octokit wrapper
+│   │   └── client.ts             # Octokit wrapper (branch, commit, trigger, poll, fetch)
 │   └── jira/
-│       └── client.ts                # Atlassian REST API v3 wrapper
-├── DEMO_GUIDE.md                    # Presenter guide with example session
+│       └── client.ts             # Atlassian REST API v3 (fetch, comment, transition)
+├── DEMO_GUIDE.md                 # Presenter guide with example session
 ├── package.json
-├── setup-mac.sh                     # macOS bootstrap script
+├── setup-mac.sh
 └── tsconfig.json
 ```
 
 ---
 
-## Database schema
-
-```sql
-CREATE TABLE users (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  name          TEXT    NOT NULL,
-  export_status TEXT    NOT NULL CHECK(export_status IN ('US_PERSON','NON_US_PERSON')),
-  username      TEXT    NOT NULL UNIQUE,
-  password_hash TEXT    NOT NULL
-);
-```
-
-Adding more users to this table requires no test code changes — tests discover all users dynamically at runtime via `GET /api/users`.
-
----
-
-## GitHub Actions secrets required
-
-Set under **Settings → Secrets and variables → Actions** (done automatically by `init-github-repo.sh`):
-
-| Secret | Value |
-|--------|-------|
-| `JIRA_HOST` | e.g. `mycompany.atlassian.net` |
-| `JIRA_EMAIL` | Your Atlassian email |
-| `JIRA_API_TOKEN` | Your Atlassian API token |
-| `JIRA_ISSUE_KEY` | Fallback issue key e.g. `AQA-1` |
-
----
-
-## Re-running the demo
-
-Run `npm run agent` as many times as needed. Each run:
-- Overwrites `tests/generated/<ISSUE-KEY>.spec.ts` on the agent branch with freshly generated tests
-- Adds a new timestamped comment to each Jira ticket
-- Overwrites `local-reports/` files with the latest results
-- Opens a fresh browser session with the new reports
-
-The Jira ticket accumulates a comment history showing each pipeline run — useful for demonstrating the agentic loop to an audience.
-
----
-
 ## Security notes
 
-- Passwords in the seed DB are stored plain-text **for demo purposes only**. Use bcrypt/argon2 in production.
-- `/api/users` returns passwords **for demo purposes only**. Never expose credentials via API in production.
-- Never commit a populated `.env` file — it is in `.gitignore`.
-- The GitHub fine-grained PAT should be scoped to this repository only and set to expire after the demo period.
+- Passwords in `data/users.db` are plain-text **for POC only** — use bcrypt/argon2 in production
+- `GET /api/users` returns passwords **for POC only** — never expose credentials via API in production
+- Never commit `.env` — it is in `.gitignore`
+- GitHub fine-grained PAT should be scoped to this repo only and set to expire after the demo
