@@ -65,59 +65,29 @@ If you enter a key that doesn't exist (e.g. `AQA-999`):
 
 ```mermaid
 flowchart TD
-    START([🖥️  Your MacBook\nnpm run agent])
+    A([npm run agent]) --> B[Interactive Prompt\nCollect Jira keys and test cases]
+    B --> C{Valid Jira key?}
+    C -- No --> D[Skipped placeholder test]
+    C -- Yes --> E[Jira Client\nFetch story via REST API v3]
+    E --> F[(SQLite DB\n10 users)]
+    D --> G
+    F --> G[Test Generator + Claude\nFixed scaffold - Claude writes assertions only]
+    G --> H[Clean stale files from agent branch]
+    H --> I[Commit tests to GitHub]
 
-    START --> PROMPT[Interactive Prompt\nsrc/agent/prompt.ts\nCollect Jira keys + plain-English test cases]
+    I --> J[main branch\nci.yml - src - scripts]
+    I --> K[agent/auto-tests branch\ntests/generated/*.spec.ts]
 
-    PROMPT --> VALID{Valid Jira key?}
-    VALID -- No  --> SKIP[Generate skipped\nplaceholder test\nContinues pipeline]
-    VALID -- Yes --> JIRA[Jira Client\nsrc/jira/client.ts\nFetch story via Atlassian REST API v3]
+    J --> L[GitHub Actions CI\nOverlay tests - npm install - Seed DB\nStart mock server - Run Playwright]
+    K --> L
 
-    JIRA --> DB[(SQLite DB\ndata/users.db\n10 users · 6 US · 4 Non-US)]
-    SKIP --> GEN
+    L --> M[Fetch results.json]
+    M --> N[Test Dashboard\nPass/fail - durations - pass rate]
+    M --> O[Login Demo UI\nUS Persons pass - Non-US fail]
+    N --> P([New Chrome session\nBoth tabs open])
+    O --> P
 
-    DB --> GEN[Test Generator\nsrc/agent/testGenerator.ts\nFixed scaffold · Claude writes assertion bodies\n1 plain-English case = 1 test block]
-
-    GEN --> CLEAN[Clean agent branch\nDelete stale spec files + results.json]
-
-    CLEAN --> COMMIT[GitHub Client\nsrc/github/client.ts\nCommit tests to agent/auto-tests · Trigger CI]
-
-    subgraph GITHUB [GitHub]
-        direction LR
-        MAIN[main branch\nci.yml · src/ · scripts/\npackage.json]
-        AGENT[agent/auto-tests\ntests/generated/*.spec.ts\nresults.json]
-    end
-
-    COMMIT --> GITHUB
-
-    GITHUB --> CI[GitHub Actions CI\nCheckout main · Overlay tests/\nnpm install · Seed DB · Mock server\nnpx playwright test]
-
-    CI --> RESULTS[Fetch results.json\nfrom agent branch]
-
-    RESULTS --> RPT[Test Dashboard\nlocal-reports/report-ID.html\nPass/fail · durations · pass rate]
-    RESULTS --> UI[Login Demo UI\nlocal-reports/login-ui-ID.html\nUS Persons ✓ · Non-US Persons ✕]
-
-    RPT & UI --> BROWSER([New Chrome session\nBoth tabs open via spawn + detach])
-
-    CI --> JIRA2[Jira Client\nPost ADF comment\nStory · CI result · pass rate\nDuration · test table · transition to Done]
-
-    style START   fill:#534AB7,color:#fff,stroke:#534AB7
-    style BROWSER fill:#534AB7,color:#fff,stroke:#534AB7
-    style PROMPT  fill:#534AB7,color:#EEEDFE,stroke:#534AB7
-    style VALID   fill:#5F5E5A,color:#fff,stroke:#5F5E5A
-    style SKIP    fill:#888780,color:#fff,stroke:#888780
-    style JIRA    fill:#0F6E56,color:#E1F5EE,stroke:#0F6E56
-    style JIRA2   fill:#0F6E56,color:#E1F5EE,stroke:#0F6E56
-    style DB      fill:#444441,color:#D3D1C7,stroke:#444441
-    style GEN     fill:#BA7517,color:#FAEEDA,stroke:#BA7517
-    style CLEAN   fill:#5F5E5A,color:#D3D1C7,stroke:#5F5E5A
-    style COMMIT  fill:#185FA5,color:#E6F1FB,stroke:#185FA5
-    style MAIN    fill:#444441,color:#D3D1C7,stroke:#444441
-    style AGENT   fill:#185FA5,color:#E6F1FB,stroke:#185FA5
-    style CI      fill:#185FA5,color:#E6F1FB,stroke:#185FA5
-    style RESULTS fill:#444441,color:#D3D1C7,stroke:#444441
-    style RPT     fill:#0F6E56,color:#E1F5EE,stroke:#0F6E56
-    style UI      fill:#0F6E56,color:#E1F5EE,stroke:#0F6E56
+    L --> Q[Jira Comment\nCI result - pass rate - test table\nTransition to Done]
 ```
 
 ---
