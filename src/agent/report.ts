@@ -344,19 +344,17 @@ function saveHtml(html: string, runId: number, prefix: string): string {
 
 /** Open two HTML files in a NEW browser session with each on its own tab.
  *  Uses spawn/detach so the browser process never blocks the agent. */
-export function openInNewBrowserSession(file1: string, file2: string): void {
-  const { spawn, execFileSync } = require('child_process');
+/** Open one or two HTML files in a brand-new browser window.
+ *  Always forces --new-window so it never reuses an existing session.
+ *  file2 is optional — pass only file1 when no report is available. */
+export function openInNewBrowserSession(file1: string, file2?: string): void {
+  const { spawn } = require('child_process');
 
   const spawnDetached = (cmd: string, args: string[]) => {
-    const proc = spawn(cmd, args, {
-      detached: true,
-      stdio:    'ignore',
-      shell:    false,
-    });
-    proc.unref(); // let the agent process exit independently of the browser
+    const proc = spawn(cmd, args, { detached: true, stdio: 'ignore', shell: false });
+    proc.unref();
   };
 
-  // Try Google Chrome / Edge / Chromium first
   const chromePaths = [
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
@@ -364,23 +362,30 @@ export function openInNewBrowserSession(file1: string, file2: string): void {
     '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
   ];
 
+  const urls = file2
+    ? [`file://${file1}`, `file://${file2}`]
+    : [`file://${file1}`];
+
+  // Try Chromium-based browsers first — only they support --new-window with multiple URLs
   for (const chromePath of chromePaths) {
     if (fs.existsSync(chromePath)) {
       try {
-        spawnDetached(chromePath, ['--new-window', `file://${file1}`, `file://${file2}`]);
-        console.log(`   🌐  Opened new browser session with both tabs`);
+        spawnDetached(chromePath, ['--new-window', ...urls]);
+        console.log(`   🌐  Opened new browser window: ${urls.length} tab(s)`);
         return;
       } catch { continue; }
     }
   }
 
-  // Fallback: open each file with macOS open (detached via & in shell)
+  // Fallback: use macOS 'open -n' which forces a new app instance
   try {
-    spawnDetached('open', [file1]);
-    setTimeout(() => spawnDetached('open', [file2]), 800);
-    console.log(`   🌐  Opened both files in default browser`);
+    spawnDetached('open', ['-n', '-a', 'Safari', file1]);
+    if (file2) {
+      setTimeout(() => spawnDetached('open', ['-a', 'Safari', file2]), 1000);
+    }
+    console.log(`   🌐  Opened in new Safari window`);
   } catch {
-    console.log(`   📄  Reports saved to local-reports/`);
+    console.log(`   📄  Reports saved to: ${urls.join(', ')}`);
   }
 }
 

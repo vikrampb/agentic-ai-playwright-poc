@@ -274,19 +274,15 @@ async function main(): Promise<void> {
   const loginUiPath  = saveLoginUi(uiSummary, run.runId);
   const reportPath   = reportResult?.reportPath;
 
-  console.log('\n🌐  Step 7b – Opening both views in a new browser session…');
+  console.log('\n🌐  Step 7b – Opening results in a new browser session…');
+  // Always open both files in a new window — pass undefined for reportPath if not available
+  openInNewBrowserSession(loginUiPath, reportPath);
   if (reportPath) {
-    openInNewBrowserSession(reportPath, loginUiPath);
+    console.log(`   📊  Test dashboard: ${reportPath}`);
   } else {
-    // No test dashboard available — open login UI only
-    try {
-      const { spawn } = require('child_process');
-      const proc = spawn('open', [loginUiPath], { detached: true, stdio: 'ignore' });
-      proc.unref();
-    } catch {
-      console.log(`   📄  Login UI saved to: ${loginUiPath}`);
-    }
+    console.log(`   ⚠️   No test dashboard available this run (results.json not fetched)`);
   }
+  console.log(`   🖥️   Login UI: ${loginUiPath}`);
 
   // ── Step 8: Post per-story Jira comments ──────────────────
   console.log('\n💬  Step 8 – Posting results to all Jira stories…');
@@ -329,7 +325,7 @@ async function main(): Promise<void> {
 
   console.log('\n' + '═'.repeat(56));
   console.log(`✅  Pipeline complete! Processed ${stories.length} story/stories.\n`);
-  if (reportResult?.summary) {
+  if (summary) {
     console.log(`📊  Dashboard: local-reports/report-${run.runId}.html\n`);
   }
 }
