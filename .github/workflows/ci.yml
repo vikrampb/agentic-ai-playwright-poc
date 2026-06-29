@@ -27,7 +27,7 @@ jobs:
       - name: Overlay test files from agent/auto-tests branch
         run: |
           git fetch origin agent/auto-tests
-          git checkout origin/agent/auto-tests -- tests/ || true
+          git checkout origin/agent/auto-tests -- tests/ playwright.config.ts || true
           echo "Test files after overlay:"
           find tests/ -type f 2>/dev/null || echo "No tests/ folder"
           echo "package.json present: $(ls package.json 2>/dev/null || echo MISSING)"
