@@ -2,7 +2,6 @@
 
 An end-to-end **Agentic AI framework** for live demo presentations. The agent reads Jira stories, generates Playwright TypeScript tests via Claude, runs them in GitHub Actions CI/CD, and presents the results in two browser windows — all from a single terminal command.
 
----
 
 ## Quick demo command
 
@@ -64,56 +63,61 @@ If you enter a key that doesn't exist (e.g. `AQA-999`):
 
 ## Architecture
 
-```
-Your MacBook
-│
-└─ npm run agent
-       │
-       ├─ Interactive prompt (src/agent/prompt.ts)
-       │     Collects Jira keys + plain-English test cases
-       │
-       ├─ Jira Client (src/jira/client.ts)
-       │     Fetches each story via Atlassian REST API v3
-       │     Posts ADF comment + transitions story to Done
-       │
-       ├─ Test Generator (src/agent/testGenerator.ts)
-       │     Fixed scaffold template — agent controls structure
-       │     Claude writes only the assertion body per test case
-       │     One plain-English case = one test() block, nothing more
-       │
-       ├─ GitHub Client (src/github/client.ts)
-       │     ensureBranch / commitFile / triggerWorkflow
-       │     waitForLatestRun / getContent (results.json)
-       │
-       ├─ Report (src/agent/report.ts)
-       │     Downloads results.json from agent branch
-       │     Builds dark-theme HTML test dashboard
-       │     Opens both reports in a new browser session (spawn+detach)
-       │
-       └─ Login UI (src/agent/loginUi.ts)
-             Two-column layout: US Persons (pass) | Non-US Persons (fail)
-             All 10 DB users displayed with avatar, username, result pill
+```mermaid
+flowchart TD
+    START([🖥️  Your MacBook\nnpm run agent])
 
-GitHub
-├─ main branch
-│    ci.yml, package.json, src/, scripts/, tsconfig.json
-│    Written by: developer
-│
-└─ agent/auto-tests branch
-     tests/generated/<ISSUE-KEY>.spec.ts  (one per story)
-     playwright.config.ts
-     playwright-report/results.json       (written by CI after each run)
-     Written by: agent (overwritten every run)
+    START --> PROMPT[Interactive Prompt\nsrc/agent/prompt.ts\nCollect Jira keys + plain-English test cases]
 
-GitHub Actions (ci.yml on main)
-1. Checkout main (has package.json, src/, scripts/)
-2. Overlay tests/ from agent/auto-tests branch
-3. npm install + Playwright browsers
-4. Seed SQLite DB (10 users)
-5. Start mock server (GET /api/users, GET /api/login, GET /health)
-6. npx playwright test
-7. Upload playwright-report/ artifact
-8. Commit results.json back to agent/auto-tests branch
+    PROMPT --> VALID{Valid Jira key?}
+    VALID -- No  --> SKIP[Generate skipped\nplaceholder test\nContinues pipeline]
+    VALID -- Yes --> JIRA[Jira Client\nsrc/jira/client.ts\nFetch story via Atlassian REST API v3]
+
+    JIRA --> DB[(SQLite DB\ndata/users.db\n10 users · 6 US · 4 Non-US)]
+    SKIP --> GEN
+
+    DB --> GEN[Test Generator\nsrc/agent/testGenerator.ts\nFixed scaffold · Claude writes assertion bodies\n1 plain-English case = 1 test block]
+
+    GEN --> CLEAN[Clean agent branch\nDelete stale spec files + results.json]
+
+    CLEAN --> COMMIT[GitHub Client\nsrc/github/client.ts\nCommit tests to agent/auto-tests · Trigger CI]
+
+    subgraph GITHUB [GitHub]
+        direction LR
+        MAIN[main branch\nci.yml · src/ · scripts/\npackage.json]
+        AGENT[agent/auto-tests\ntests/generated/*.spec.ts\nresults.json]
+    end
+
+    COMMIT --> GITHUB
+
+    GITHUB --> CI[GitHub Actions CI\nCheckout main · Overlay tests/\nnpm install · Seed DB · Mock server\nnpx playwright test]
+
+    CI --> RESULTS[Fetch results.json\nfrom agent branch]
+
+    RESULTS --> RPT[Test Dashboard\nlocal-reports/report-ID.html\nPass/fail · durations · pass rate]
+    RESULTS --> UI[Login Demo UI\nlocal-reports/login-ui-ID.html\nUS Persons ✓ · Non-US Persons ✕]
+
+    RPT & UI --> BROWSER([New Chrome session\nBoth tabs open via spawn + detach])
+
+    CI --> JIRA2[Jira Client\nPost ADF comment\nStory · CI result · pass rate\nDuration · test table · transition to Done]
+
+    style START   fill:#534AB7,color:#fff,stroke:#534AB7
+    style BROWSER fill:#534AB7,color:#fff,stroke:#534AB7
+    style PROMPT  fill:#534AB7,color:#EEEDFE,stroke:#534AB7
+    style VALID   fill:#5F5E5A,color:#fff,stroke:#5F5E5A
+    style SKIP    fill:#888780,color:#fff,stroke:#888780
+    style JIRA    fill:#0F6E56,color:#E1F5EE,stroke:#0F6E56
+    style JIRA2   fill:#0F6E56,color:#E1F5EE,stroke:#0F6E56
+    style DB      fill:#444441,color:#D3D1C7,stroke:#444441
+    style GEN     fill:#BA7517,color:#FAEEDA,stroke:#BA7517
+    style CLEAN   fill:#5F5E5A,color:#D3D1C7,stroke:#5F5E5A
+    style COMMIT  fill:#185FA5,color:#E6F1FB,stroke:#185FA5
+    style MAIN    fill:#444441,color:#D3D1C7,stroke:#444441
+    style AGENT   fill:#185FA5,color:#E6F1FB,stroke:#185FA5
+    style CI      fill:#185FA5,color:#E6F1FB,stroke:#185FA5
+    style RESULTS fill:#444441,color:#D3D1C7,stroke:#444441
+    style RPT     fill:#0F6E56,color:#E1F5EE,stroke:#0F6E56
+    style UI      fill:#0F6E56,color:#E1F5EE,stroke:#0F6E56
 ```
 
 ---
