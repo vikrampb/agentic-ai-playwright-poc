@@ -63,7 +63,26 @@ If you enter a key that doesn't exist (e.g. `AQA-999`):
 
 ## Architecture
 
-![Architecture diagram](docs/architecture.svg)
+```mermaid
+flowchart TD
+    A([npm run agent]) --> B[Interactive Prompt]
+    B --> C{Valid Jira key?}
+    C -- Yes --> D[Jira Client - Fetch story]
+    C -- No --> E[Skipped placeholder test]
+    E --> F
+    D --> F[SQLite DB - 10 users]
+    F --> G[Test Generator plus Claude]
+    G --> H[Clean stale files from agent branch]
+    H --> I[Commit tests to GitHub]
+    I --> J[main branch - ci.yml and src]
+    I --> K[agent/auto-tests - spec files]
+    J --> L[GitHub Actions CI]
+    K --> L
+    L --> M[Test Dashboard - pass/fail]
+    L --> N[Jira Comment plus Transition]
+    M --> O[Login Demo UI]
+    O --> P([New Chrome session])
+```
 
 ---
 
