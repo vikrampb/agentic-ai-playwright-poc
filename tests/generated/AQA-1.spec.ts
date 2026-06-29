@@ -46,20 +46,4 @@ test.describe('AQA-1 – Verify only US Users are able to log in to the applicat
       }
     }
   });
-
-  test('AQA-100', async ({ request }) => {
-    const users = await getUsers(request);
-    
-    for (const user of users) {
-      const response = await login(request, user.username, user.password);
-    
-      if (user.export_status === "US_PERSON") {
-        expect(response.success).toBe(true);
-        expect(response.message).toContain("Login successful");
-      } else {
-        expect(response.success).toBe(false);
-        expect(response.message).toContain("Only US Persons are allowed to watch this demo.");
-      }
-    }
-  });
 });
