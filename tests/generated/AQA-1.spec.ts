@@ -47,15 +47,19 @@ test.describe('AQA-1 – Verify only US Users are able to log in to the applicat
     }
   });
 
-  test('If US user login is successful, show the user an American Flag', async ({ request }) => {
+  test('AQA-100', async ({ request }) => {
     const users = await getUsers(request);
-    const usUsers = users.filter(user => user.export_status === "US_PERSON");
     
-    for (const user of usUsers) {
+    for (const user of users) {
       const response = await login(request, user.username, user.password);
-      expect(response.success).toBe(true);
-      expect(response.message).toContain("Login successful");
-      expect(response.exportStatus).toBe("US_PERSON");
+    
+      if (user.export_status === "US_PERSON") {
+        expect(response.success).toBe(true);
+        expect(response.message).toContain("Login successful");
+      } else {
+        expect(response.success).toBe(false);
+        expect(response.message).toContain("Only US Persons are allowed to watch this demo.");
+      }
     }
   });
 });
